@@ -31,7 +31,7 @@ class HouseEvent {
   final bool published;
 
   String text(Map<String, String> values, String language) {
-    return values[language] ?? values['es'] ?? values['en'] ?? values['eu'] ?? '';
+    return values['en'] ?? values[language] ?? values['es'] ?? values['eu'] ?? '';
   }
 
   static Map<String, String> _textMap(Object? value) {

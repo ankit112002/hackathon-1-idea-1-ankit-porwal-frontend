@@ -29,9 +29,9 @@ final closedDaysProvider = FutureProvider<List<ClosedDay>>((ref) async {
 });
 
 List<ClosedDay> _demoClosedDays() => [
-      ClosedDay(day: DateTime(2026, 12, 24), reason: 'Nochebuena — Cerrado por fiesta familiar'),
-      ClosedDay(day: DateTime(2026, 12, 25), reason: 'Navidad — Descanso del equipo'),
-      ClosedDay(day: DateTime(2026, 12, 31), reason: 'Nochevieja — Preparación de temporada'),
+      ClosedDay(day: DateTime(2026, 12, 24), reason: 'Christmas Eve — closed for a family day'),
+      ClosedDay(day: DateTime(2026, 12, 25), reason: 'Christmas Day — staff day off'),
+      ClosedDay(day: DateTime(2026, 12, 31), reason: 'New Year\'s Eve — season prep'),
     ];
 
 class CalendarScreen extends ConsumerStatefulWidget {
@@ -43,8 +43,9 @@ class CalendarScreen extends ConsumerStatefulWidget {
 
 class _CalendarScreenState extends ConsumerState<CalendarScreen> {
   DateTime _day = DateTime(2026, 10, 29);
-  final _reason = TextEditingController(text: 'Mantenimiento de kupelas');
+  final _reason = TextEditingController(text: 'Barrel maintenance');
   String? _message;
+  var _messageIsError = false;
 
   @override
   void dispose() {
@@ -58,7 +59,8 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
     final days = ref.watch(closedDaysProvider);
 
     return AppScaffold(
-      title: 'Calendario y Días Bloqueados (S5)',
+      title: 'Calendar',
+      staffShell: true,
       body: AdminChrome(
         child: MaxWidth(
           child: days.when(
@@ -75,22 +77,17 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
     return ListView(
       padding: const EdgeInsets.all(AppSpacing.lg),
       children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Gestión de Calendario y Cierres (S5)',
-                  style: GoogleFonts.fraunces(fontSize: 24, fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 2),
-                const Text(
-                  'Bloqueo preventivo de días festivos con salvaguardas automáticas de alto riesgo',
-                  style: TextStyle(fontSize: 14, color: AppColors.inkMuted),
-                ),
-              ],
+            Text(
+              'Closed days',
+              style: GoogleFonts.fraunces(fontSize: 24, fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 2),
+            const Text(
+              'Close a day when the house is not serving. Existing bookings are listed first.',
+              style: TextStyle(fontSize: 14, color: AppColors.inkMuted),
             ),
           ],
         ),
@@ -103,17 +100,17 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
-                'Bloquear una Fecha Operativa',
+                'Close a day',
                 style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
               ),
               const SizedBox(height: AppSpacing.sm),
               ListTile(
                 contentPadding: EdgeInsets.zero,
                 title: Text(
-                  'Fecha seleccionada: ${madridDateString(_day)}',
+                  'Selected date: ${madridDateString(_day)}',
                   style: const TextStyle(fontWeight: FontWeight.w600),
                 ),
-                subtitle: const Text('Toca para cambiar la fecha a evaluar'),
+                subtitle: const Text('Tap to change the date'),
                 trailing: const Icon(Icons.calendar_today, color: AppColors.bottleGreen),
                 onTap: () async {
                   final picked = await showDatePicker(
@@ -126,18 +123,24 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
                 },
               ),
               AppField(
-                label: 'Motivo del cierre',
+                label: 'Reason',
                 controller: _reason,
-                hintText: 'Ej. Mantenimiento anual o descanso del personal',
+                hintText: 'For example, annual maintenance or a staff day off',
               ),
               const SizedBox(height: AppSpacing.md),
               AppButton(
-                label: 'Bloquear este día (evaluar salvaguarda)',
+                label: 'Close this day',
                 onPressed: () => _add(l10n),
               ),
               if (_message != null) ...[
                 const SizedBox(height: AppSpacing.sm),
-                Text(_message!, style: const TextStyle(color: AppColors.bottleGreen, fontWeight: FontWeight.w600)),
+                Text(
+                  _message!,
+                  style: TextStyle(
+                    color: _messageIsError ? AppColors.danger : AppColors.bottleGreen,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
               ],
             ],
           ),
@@ -145,7 +148,7 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
 
         const SizedBox(height: AppSpacing.xl),
         Text(
-          'Días actualmente cerrados o bloqueados',
+          'Closed days',
           style: GoogleFonts.fraunces(fontSize: 18, fontWeight: FontWeight.w700),
         ),
         const SizedBox(height: AppSpacing.sm),
@@ -172,13 +175,21 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
                   ),
                 ),
                 IconButton(
-                  tooltip: 'Desbloquear día',
+                  tooltip: 'Reopen day',
                   onPressed: () async {
                     try {
                       await ref.read(shiftRepositoryProvider).removeClosedDay(row.day);
                       ref.invalidate(closedDaysProvider);
-                    } catch (_) {}
-                    setState(() => _message = 'Día reactivado para reservas.');
+                      setState(() {
+                        _message = 'Day reopened for bookings.';
+                        _messageIsError = false;
+                      });
+                    } catch (_) {
+                      setState(() {
+                        _message = l10n.errorGeneric;
+                        _messageIsError = true;
+                      });
+                    }
                   },
                   icon: const Icon(Icons.delete_outline, color: AppColors.danger),
                 ),
@@ -197,18 +208,13 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
       names = await ref.read(shiftRepositoryProvider).affectedNames(
             date: madridDateString(_day),
           );
-    } catch (_) {}
-
-    // In demo mode or if Jueves 29 Oct is selected, simulate 6 affected bookings per S5 spec
-    if (names.isEmpty && _day.day == 29) {
-      names = [
-        'Ane Etxebarria (12 pax)',
-        'Jon Mirena Goitia (4 pax)',
-        'Mikel Arana (6 pax)',
-        'Iñigo Zuloaga (8 pax)',
-        'Amaia Gorrotxategi (4 pax)',
-        'Koldo Agirre (4 pax)',
-      ];
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _message = l10n.errorGeneric;
+        _messageIsError = true;
+      });
+      return;
     }
 
     if (!mounted) return;
@@ -224,7 +230,7 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
               const Icon(Icons.warning, color: AppColors.danger, size: 28),
               const SizedBox(width: 8),
               Text(
-                'Salvaguarda de Alto Riesgo',
+                'Bookings already exist',
                 style: GoogleFonts.fraunces(
                   fontSize: 20,
                   fontWeight: FontWeight.w700,
@@ -245,7 +251,7 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
                   border: Border.all(color: AppColors.danger.withValues(alpha: 0.3)),
                 ),
                 child: Text(
-                  '¡Atención! Hay ${names.length} reservas confirmadas en este día (${names.length == 6 ? "38 comensales en total" : "múltiples comensales"}).',
+                  'There are ${names.length} bookings on this day.',
                   style: const TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w700,
@@ -255,7 +261,7 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
               ),
               const SizedBox(height: AppSpacing.sm),
               const Text(
-                'Clientes afectados en este turno:',
+                'Guests already booked:',
                 style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
               ),
               const SizedBox(height: 4),
@@ -266,7 +272,7 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
                 ),
               const SizedBox(height: AppSpacing.sm),
               const Text(
-                'Bloquear este día cancelará automáticamente las reservas y exigirá la devolución de las señas abonadas. ¿Confirmar cierre?',
+                'Closing this day cancels those bookings. Confirm anyway?',
                 style: TextStyle(fontSize: 13, color: AppColors.inkMuted),
               ),
             ],
@@ -274,12 +280,12 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context, false),
-              child: const Text('Cancelar y mantener abierto', style: TextStyle(color: AppColors.ink)),
+              child: const Text('Keep the day open', style: TextStyle(color: AppColors.ink)),
             ),
             FilledButton(
               style: FilledButton.styleFrom(backgroundColor: AppColors.danger),
               onPressed: () => Navigator.pop(context, true),
-              child: const Text('Confirmar bloqueo de todos modos'),
+              child: const Text('Close anyway'),
             ),
           ],
         ),
@@ -290,7 +296,15 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
     try {
       await ref.read(shiftRepositoryProvider).addClosedDay(_day, _reason.text.trim());
       ref.invalidate(closedDaysProvider);
-    } catch (_) {}
-    setState(() => _message = 'Día ${madridDateString(_day)} bloqueado correctamente.');
+      setState(() {
+        _message = '${madridDateString(_day)} is now closed.';
+        _messageIsError = false;
+      });
+    } catch (_) {
+      setState(() {
+        _message = l10n.errorGeneric;
+        _messageIsError = true;
+      });
+    }
   }
 }

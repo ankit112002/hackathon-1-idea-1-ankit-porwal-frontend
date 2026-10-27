@@ -68,7 +68,8 @@ class EventsScreen extends ConsumerWidget {
     final events = ref.watch(allEventsProvider);
 
     return AppScaffold(
-      title: 'Editor de Eventos y Agenda (S6)',
+      title: 'Events',
+      staffShell: true,
       body: AdminChrome(
         child: MaxWidth(
           child: events.when(
@@ -90,30 +91,54 @@ class EventsScreen extends ConsumerWidget {
     return ListView(
       padding: const EdgeInsets.all(AppSpacing.lg),
       children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Column(
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final isNarrow = constraints.maxWidth < 450;
+            final titleWidget = Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Agenda Cultural Trilingüe (S6)',
+                  'Events',
                   style: GoogleFonts.fraunces(fontSize: 24, fontWeight: FontWeight.w700),
                 ),
                 const SizedBox(height: 2),
                 const Text(
-                  'Crea y publica conciertos, catas y eventos en castellano, euskera e inglés.',
+                  'Publish concerts and tastings on the home page.',
                   style: TextStyle(fontSize: 14, color: AppColors.inkMuted),
                 ),
               ],
-            ),
-            FilledButton.icon(
-              style: FilledButton.styleFrom(backgroundColor: AppColors.bottleGreen),
+            );
+
+            final button = FilledButton.icon(
+              style: FilledButton.styleFrom(
+                backgroundColor: AppColors.bottleGreen,
+                minimumSize: isNarrow ? const Size(double.infinity, 42) : null,
+              ),
               onPressed: () => _edit(context, ref, null),
               icon: const Icon(Icons.add, size: 18),
               label: Text(l10n.newEvent),
-            ),
-          ],
+            );
+
+            if (isNarrow) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  titleWidget,
+                  const SizedBox(height: AppSpacing.sm),
+                  button,
+                ],
+              );
+            }
+
+            return Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(child: titleWidget),
+                const SizedBox(width: AppSpacing.md),
+                button,
+              ],
+            );
+          },
         ),
         const SizedBox(height: AppSpacing.lg),
 
@@ -130,7 +155,7 @@ class EventsScreen extends ConsumerWidget {
                   children: [
                     Expanded(
                       child: Text(
-                        event.text(event.title, 'es'),
+                        event.text(event.title, 'en'),
                         style: GoogleFonts.fraunces(fontSize: 18, fontWeight: FontWeight.w700),
                       ),
                     ),
@@ -144,7 +169,7 @@ class EventsScreen extends ConsumerWidget {
                         ),
                       ),
                       child: Text(
-                        event.published ? 'Publicado' : 'Borrador',
+                        event.published ? 'Published' : 'Draft',
                         style: TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w700,
@@ -155,17 +180,9 @@ class EventsScreen extends ConsumerWidget {
                   ],
                 ),
                 const SizedBox(height: 6),
-                Text(
-                  'EU: ${event.text(event.title, "eu")}',
-                  style: const TextStyle(fontSize: 13, color: AppColors.inkMuted, fontStyle: FontStyle.italic),
-                ),
-                Text(
-                  'EN: ${event.text(event.title, "en")}',
-                  style: const TextStyle(fontSize: 13, color: AppColors.inkMuted, fontStyle: FontStyle.italic),
-                ),
                 const SizedBox(height: 8),
                 Text(
-                  event.text(event.description, 'es'),
+                  event.text(event.description, 'en'),
                   style: const TextStyle(fontSize: 14, height: 1.4),
                 ),
                 const SizedBox(height: AppSpacing.md),
@@ -175,7 +192,7 @@ class EventsScreen extends ConsumerWidget {
                       style: OutlinedButton.styleFrom(minimumSize: const Size(120, 38)),
                       onPressed: () => _edit(context, ref, event),
                       icon: const Icon(Icons.edit, size: 16),
-                      label: const Text('Editar'),
+                      label: const Text('Edit'),
                     ),
                   ],
                 ),
@@ -188,18 +205,10 @@ class EventsScreen extends ConsumerWidget {
     );
   }
 
-  // S6: Trilingual Event Creator Dialog
   Future<void> _edit(BuildContext context, WidgetRef ref, HouseEvent? event) async {
-    final titleEs = TextEditingController(text: event?.text(event.title, 'es') ?? '');
-    final titleEu = TextEditingController(text: event?.title['eu'] ?? '');
-    final titleEn = TextEditingController(text: event?.title['en'] ?? '');
-
-    final descEs = TextEditingController(text: event?.text(event.description, 'es') ?? '');
-    final descEu = TextEditingController(text: event?.description['eu'] ?? '');
-    final descEn = TextEditingController(text: event?.description['en'] ?? '');
-
+    final title = TextEditingController(text: event?.text(event.title, 'en') ?? '');
+    final description = TextEditingController(text: event?.text(event.description, 'en') ?? '');
     var published = event?.published ?? true;
-    var activeTab = 0; // 0: ES, 1: EU, 2: EN
 
     final saved = await showDialog<bool>(
       context: context,
@@ -208,7 +217,7 @@ class EventsScreen extends ConsumerWidget {
           backgroundColor: AppColors.surface,
           shape: RoundedRectangleBorder(borderRadius: AppRadius.card),
           title: Text(
-            event == null ? 'Nuevo Evento Trilingüe (S6)' : 'Editar Evento Cultural',
+            event == null ? 'New event' : 'Edit event',
             style: GoogleFonts.fraunces(fontSize: 20, fontWeight: FontWeight.w700),
           ),
           content: SizedBox(
@@ -218,55 +227,14 @@ class EventsScreen extends ConsumerWidget {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Trilingual Language Switcher Tabs
-                  Container(
-                    decoration: BoxDecoration(
-                      color: AppColors.paper,
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: AppColors.line),
-                    ),
-                    padding: const EdgeInsets.all(4),
-                    child: Row(
-                      children: [
-                        _LangTab(
-                          label: 'Español (ES)',
-                          isSelected: activeTab == 0,
-                          onTap: () => setLocal(() => activeTab = 0),
-                        ),
-                        _LangTab(
-                          label: 'Euskara (EU)',
-                          isSelected: activeTab == 1,
-                          onTap: () => setLocal(() => activeTab = 1),
-                        ),
-                        _LangTab(
-                          label: 'English (EN)',
-                          isSelected: activeTab == 2,
-                          onTap: () => setLocal(() => activeTab = 2),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: AppSpacing.md),
-
-                  if (activeTab == 0) ...[
-                    AppField(label: 'Título en Español (ES)', controller: titleEs),
-                    const SizedBox(height: AppSpacing.sm),
-                    AppField(label: 'Descripción en Español (ES)', controller: descEs, maxLines: 3),
-                  ] else if (activeTab == 1) ...[
-                    AppField(label: 'Izenburua Euskaraz (EU)', controller: titleEu),
-                    const SizedBox(height: AppSpacing.sm),
-                    AppField(label: 'Deskribapena Euskaraz (EU)', controller: descEu, maxLines: 3),
-                  ] else ...[
-                    AppField(label: 'Title in English (EN)', controller: titleEn),
-                    const SizedBox(height: AppSpacing.sm),
-                    AppField(label: 'Description in English (EN)', controller: descEn, maxLines: 3),
-                  ],
-
+                  AppField(label: 'Title', controller: title),
+                  const SizedBox(height: AppSpacing.sm),
+                  AppField(label: 'Description', controller: description, maxLines: 3),
                   const SizedBox(height: AppSpacing.md),
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
                     activeTrackColor: AppColors.bottleGreen,
-                    title: const Text('Publicar evento en la portada de la web', style: TextStyle(fontWeight: FontWeight.w600)),
+                    title: const Text('Show on the home page', style: TextStyle(fontWeight: FontWeight.w600)),
                     value: published,
                     onChanged: (val) => setLocal(() => published = val),
                   ),
@@ -277,12 +245,12 @@ class EventsScreen extends ConsumerWidget {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context, false),
-              child: const Text('Cancelar', style: TextStyle(color: AppColors.inkMuted)),
+              child: const Text('Cancel', style: TextStyle(color: AppColors.inkMuted)),
             ),
             FilledButton(
               style: FilledButton.styleFrom(backgroundColor: AppColors.bottleGreen),
               onPressed: () => Navigator.pop(context, true),
-              child: const Text('Guardar evento'),
+              child: const Text('Save event'),
             ),
           ],
         ),
@@ -291,53 +259,16 @@ class EventsScreen extends ConsumerWidget {
 
     if (saved != true) return;
     try {
-      final repo = ref.read(eventRepositoryProvider);
-      await repo.save(
+      final text = {'en': title.text, 'es': title.text, 'eu': title.text};
+      final body = {'en': description.text, 'es': description.text, 'eu': description.text};
+      await ref.read(eventRepositoryProvider).save(
         id: event?.id,
-        title: {'es': titleEs.text, 'en': titleEn.text, 'eu': titleEu.text},
-        description: {'es': descEs.text, 'en': descEn.text, 'eu': descEu.text},
+        title: text,
+        description: body,
         published: published,
         eventDate: event?.eventDate ?? DateTime(2026, 10, 31, 19, 30),
       );
       ref.invalidate(allEventsProvider);
     } catch (_) {}
-  }
-}
-
-class _LangTab extends StatelessWidget {
-  const _LangTab({
-    required this.label,
-    required this.isSelected,
-    required this.onTap,
-  });
-
-  final String label;
-  final bool isSelected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      child: InkWell(
-        borderRadius: BorderRadius.circular(8),
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: isSelected ? AppColors.bottleGreen : Colors.transparent,
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Text(
-            label,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
-              color: isSelected ? Colors.white : AppColors.ink,
-            ),
-          ),
-        ),
-      ),
-    );
   }
 }

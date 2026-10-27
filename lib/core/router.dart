@@ -68,10 +68,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       if (session == null) return isLogin ? null : '/admin/login';
 
       final role = await currentRole();
+      // A signed-in account with no profile role stays on login so the
+      // screen can explain it. Every other admin path returns there too.
       if (role == null) return isLogin ? null : '/admin/login';
-      if (path == '/admin/login') {
-        return role == StaffRole.waiter ? '/admin/waiter' : '/admin';
-      }
+      final home = role == StaffRole.waiter ? '/admin/waiter' : '/admin';
+      if (isLogin) return home;
       if (role == StaffRole.waiter && path != '/admin/waiter') {
         return '/admin/waiter';
       }

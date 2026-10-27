@@ -207,7 +207,7 @@ class BookingRepository {
     } on FunctionException catch (error) {
       final details = error.details?.toString() ?? '';
       if (details.contains('STRIPE_NOT_CONFIGURED')) {
-        throw BookingFailure(BookingErrorCode.notAllowed);
+        throw BookingFailure(BookingErrorCode.paymentNotConfigured);
       }
       throw BookingFailure(BookingErrorCode.generic);
     }

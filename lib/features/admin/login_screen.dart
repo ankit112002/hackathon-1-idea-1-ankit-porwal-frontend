@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../core/i18n_extension.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/widgets/app_button.dart';
@@ -22,11 +23,10 @@ class LoginScreen extends ConsumerStatefulWidget {
 }
 
 class _LoginScreenState extends ConsumerState<LoginScreen> {
-  final _email = TextEditingController(text: 'propietario@iturrieta.eus');
-  final _password = TextEditingController(text: 'txotx2026!');
+  final _email = TextEditingController();
+  final _password = TextEditingController();
   var _busy = false;
   String? _error;
-  int _selectedRole = 1; // 0: Camarero, 1: Dueño
 
   @override
   void dispose() {
@@ -38,10 +38,18 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
+    final ready = ref.watch(supabaseReadyProvider);
+    final roleState = ref.watch(staffRoleProvider);
+    final signedIn = ready && Supabase.instance.client.auth.currentSession != null;
+    final missingRole = signedIn &&
+        roleState.hasValue &&
+        !roleState.isLoading &&
+        roleState.value == null;
 
     return AppScaffold(
       title: l10n.loginTitle,
       homePath: '/',
+      hidePublicNav: true,
       body: MaxWidth(
         child: ListView(
           padding: const EdgeInsets.all(AppSpacing.lg),
@@ -61,7 +69,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   ),
                   const SizedBox(height: AppSpacing.sm),
                   Text(
-                    'Acceso Equipo Sidrería',
+                    context.tr(
+                      es: 'Acceso del equipo',
+                      eu: 'Lan-taldearen sarbidea',
+                      en: 'Staff sign in',
+                    ),
+                    textAlign: TextAlign.center,
                     style: GoogleFonts.fraunces(
                       fontSize: 28,
                       fontWeight: FontWeight.w700,
@@ -69,158 +82,24 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     ),
                   ),
                   const SizedBox(height: 4),
-                  const Text(
-                    'Gestión de sala, asignación de mesas y control administrativo',
-                    style: TextStyle(fontSize: 14, color: AppColors.inkMuted),
+                  Text(
+                    context.tr(
+                      es: 'Entra con tu cuenta. El camarero abre la sala y el dueño abre el panel.',
+                      eu: 'Sartu zure kontuarekin. Zerbitzariak jangela irekitzen du eta jabeak panela.',
+                      en: 'Sign in with your account. A waiter opens the dining room. An owner opens the dashboard.',
+                    ),
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontSize: 14, color: AppColors.inkMuted),
                   ),
                 ],
               ),
             ),
             const SizedBox(height: AppSpacing.xl),
-
-            // S1 (Staff Login): Dual-role switcher (Camarero vs Dueño) per specifications
             AppCard(
               padding: const EdgeInsets.all(AppSpacing.md),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    'Selección de Rol (S1 Specification)',
-                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.inkMuted),
-                  ),
-                  const SizedBox(height: AppSpacing.sm),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: InkWell(
-                          borderRadius: BorderRadius.circular(10),
-                          onTap: () {
-                            setState(() {
-                              _selectedRole = 0;
-                              _email.text = 'camarero@iturrieta.eus';
-                            });
-                          },
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            decoration: BoxDecoration(
-                              color: _selectedRole == 0 ? AppColors.bottleGreen : AppColors.paper,
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(
-                                color: _selectedRole == 0 ? AppColors.bottleGreen : AppColors.line,
-                              ),
-                            ),
-                            child: Column(
-                              children: [
-                                Icon(
-                                  Icons.restaurant,
-                                  color: _selectedRole == 0 ? Colors.white : AppColors.ink,
-                                  size: 22,
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  'Camarero',
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.w700,
-                                    fontSize: 14,
-                                    color: _selectedRole == 0 ? Colors.white : AppColors.ink,
-                                  ),
-                                ),
-                                Text(
-                                  'Servicio de Sala',
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: _selectedRole == 0 ? Colors.white70 : AppColors.inkMuted,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: AppSpacing.sm),
-                      Expanded(
-                        child: InkWell(
-                          borderRadius: BorderRadius.circular(10),
-                          onTap: () {
-                            setState(() {
-                              _selectedRole = 1;
-                              _email.text = 'propietario@iturrieta.eus';
-                            });
-                          },
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            decoration: BoxDecoration(
-                              color: _selectedRole == 1 ? AppColors.bottleGreen : AppColors.paper,
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(
-                                color: _selectedRole == 1 ? AppColors.bottleGreen : AppColors.line,
-                              ),
-                            ),
-                            child: Column(
-                              children: [
-                                Icon(
-                                  Icons.admin_panel_settings,
-                                  color: _selectedRole == 1 ? Colors.white : AppColors.ink,
-                                  size: 22,
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  'Dueño',
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.w700,
-                                    fontSize: 14,
-                                    color: _selectedRole == 1 ? Colors.white : AppColors.ink,
-                                  ),
-                                ),
-                                Text(
-                                  'KPIs, Plano y Ajustes',
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: _selectedRole == 1 ? Colors.white70 : AppColors.inkMuted,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: AppSpacing.md),
-                  FilledButton.icon(
-                    style: FilledButton.styleFrom(
-                      backgroundColor: AppColors.bottleGreen,
-                      minimumSize: const Size(double.infinity, 48),
-                    ),
-                    onPressed: () {
-                      if (_selectedRole == 0) {
-                        context.go('/admin/waiter');
-                      } else {
-                        context.go('/admin');
-                      }
-                    },
-                    icon: const Icon(Icons.login, size: 18),
-                    label: Text(
-                      _selectedRole == 0 ? 'Entrar a Sala como Camarero' : 'Entrar al Panel como Dueño',
-                      style: const TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: AppSpacing.lg),
-
-            // Standard Credentials Form
-            AppCard(
-              padding: const EdgeInsets.all(AppSpacing.md),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Acceso con Credenciales Supabase',
-                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.inkMuted),
-                  ),
-                  const SizedBox(height: AppSpacing.sm),
                   AppField(
                     label: l10n.email,
                     controller: _email,
@@ -232,13 +111,46 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     const SizedBox(height: AppSpacing.md),
                     Text(_error!, style: const TextStyle(color: AppColors.danger)),
                   ],
+                  if (missingRole) ...[
+                    const SizedBox(height: AppSpacing.md),
+                    Text(
+                      context.tr(
+                        es: 'Esta cuenta no tiene un perfil de equipo. Pide al dueño que asigne camarero, jefe o dueño.',
+                        eu: 'Kontu honek ez du lan-taldeko rolik. Eskatu jabeari zerbitzari, arduradun edo jabe rola emateko.',
+                        en: 'This account has no staff role. Ask the owner to assign waiter, manager, or owner.',
+                      ),
+                      style: const TextStyle(color: AppColors.danger),
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
+                    AppButton(
+                      label: l10n.signOut,
+                      kind: AppButtonKind.outlined,
+                      fullWidth: true,
+                      onPressed: _signOut,
+                    ),
+                  ],
                   const SizedBox(height: AppSpacing.md),
                   AppButton(
-                    label: _busy ? l10n.sending : 'Iniciar sesión con contraseña',
-                    kind: AppButtonKind.outlined,
+                    label: _busy ? l10n.sending : l10n.loginTitle,
+                    fullWidth: true,
                     onPressed: _busy ? null : _submit,
                   ),
                 ],
+              ),
+            ),
+            const SizedBox(height: AppSpacing.md),
+            Center(
+              child: TextButton.icon(
+                onPressed: () => context.go('/'),
+                icon: const Icon(Icons.arrow_back, size: 16, color: AppColors.bottleGreen),
+                label: Text(
+                  context.tr(
+                    es: 'Volver a la web pública de clientes',
+                    eu: 'Itzuli bezeroen webgune publikora',
+                    en: 'Return to public customer website',
+                  ),
+                  style: const TextStyle(color: AppColors.bottleGreen, fontWeight: FontWeight.w600),
+                ),
               ),
             ),
           ],
@@ -259,16 +171,17 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     } on AuthException {
       if (mounted) setState(() => _error = l10n.authFailed);
     } catch (_) {
-      // In demo mode, route according to role
-      if (mounted) {
-        if (_selectedRole == 0) {
-          context.go('/admin/waiter');
-        } else {
-          context.go('/admin');
-        }
-      }
+      if (mounted) setState(() => _error = l10n.errorGeneric);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  Future<void> _signOut() async {
+    final epoch = ref.read(authEpochProvider.notifier);
+    try {
+      await ref.read(authRepositoryProvider).signOut();
+    } catch (_) {}
+    epoch.bump();
   }
 }

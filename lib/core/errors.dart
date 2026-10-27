@@ -13,6 +13,7 @@ enum BookingErrorCode {
   notCancellable,
   tooMany,
   notAllowed,
+  paymentNotConfigured,
   generic,
 }
 
@@ -75,6 +76,7 @@ String bookingErrorText(
     BookingErrorCode.notCancellable => l10n.errorNotCancellable,
     BookingErrorCode.tooMany => l10n.errorTooManyBookings,
     BookingErrorCode.notAllowed => l10n.errorNotAllowed,
+    BookingErrorCode.paymentNotConfigured => l10n.paymentNotConfigured,
     BookingErrorCode.generic => l10n.errorGeneric,
   };
 }

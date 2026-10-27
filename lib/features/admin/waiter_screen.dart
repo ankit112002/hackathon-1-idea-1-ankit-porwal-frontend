@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../core/errors.dart';
+import '../../core/i18n_extension.dart';
 import '../../core/madrid_time.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_radius.dart';
@@ -9,11 +11,14 @@ import '../../core/theme/app_spacing.dart';
 import '../../core/widgets/app_card.dart';
 import '../../core/widgets/app_field.dart';
 import '../../core/widgets/app_scaffold.dart';
+import '../../core/widgets/empty_state.dart';
+import '../../core/widgets/error_state.dart';
 import '../../core/widgets/loading_state.dart';
 import '../../core/widgets/max_width.dart';
 import '../../l10n/app_localizations.dart';
 import '../../models/booking.dart';
 import '../../models/floor_table.dart';
+import '../../models/shift_availability.dart';
 import '../../providers/app_providers.dart';
 import 'admin_chrome.dart';
 
@@ -50,7 +55,7 @@ List<LiveBooking> _demoLiveBookings() => [
         partySize: 12,
         status: 'confirmed',
         channel: 'web',
-        notes: 'Alergia al gluten (1 celíaco)',
+        notes: 'Gluten allergy (1 guest)',
         depositAmount: 120,
         payment: 'paid',
         tableLabels: ['T3', 'B1 (Roble)'],
@@ -98,7 +103,7 @@ List<LiveBooking> _demoLiveBookings() => [
         partySize: 8,
         status: 'confirmed',
         channel: 'web',
-        notes: '1 trona infantil',
+        notes: '1 high chair',
         depositAmount: 80,
         payment: 'paid',
         tableLabels: ['T4'],
@@ -114,134 +119,139 @@ class WaiterScreen extends ConsumerWidget {
     final l10n = AppLocalizations.of(context);
     final day = ref.watch(serviceDateProvider);
     final bookings = ref.watch(liveBookingsProvider);
+    final ready = ref.watch(supabaseReadyProvider);
+    final now = madridNow();
+    final today = DateTime(now.year, now.month, now.day);
+    final isToday = day == today;
 
     return AppScaffold(
-      title: 'Servicio de Sala — En Vivo',
-      actions: [
-        IconButton(
-          tooltip: l10n.phoneBooking,
-          onPressed: () => showDialog<void>(
-            context: context,
-            builder: (_) => const _PhoneBookingDialog(),
-          ),
-          icon: const Icon(Icons.add_call, color: AppColors.bottleGreen),
-        ),
-      ],
+      title: 'Service',
+      staffShell: true,
       body: AdminChrome(
         child: MaxWidth(
           child: ListView(
             padding: const EdgeInsets.all(AppSpacing.lg),
             children: [
-              // Header & Date
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Column(
+              // Header & Date (Responsive layout to prevent overflow on mobile)
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final isNarrow = constraints.maxWidth < 450;
+                  final heading = isToday
+                      ? context.tr(
+                          es: 'Reservas de hoy',
+                          eu: 'Gaurko erreserbak',
+                          en: "Today's bookings",
+                        )
+                      : context.tr(
+                          es: 'Reservas del servicio',
+                          eu: 'Zerbitzuko erreserbak',
+                          en: 'Service bookings',
+                        );
+                  final titleWidget = Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Servicio de Sala (S2)',
+                        heading,
                         style: GoogleFonts.fraunces(
-                          fontSize: 26,
+                          fontSize: isNarrow ? 22 : 26,
                           fontWeight: FontWeight.w700,
                           color: AppColors.ink,
                         ),
                       ),
-                      Text(
-                        madridDateString(day),
-                        style: const TextStyle(fontSize: 14, color: AppColors.inkMuted),
+                      Row(
+                        children: [
+                          IconButton(
+                            tooltip: context.tr(
+                              es: 'Día anterior',
+                              eu: 'Aurreko eguna',
+                              en: 'Previous day',
+                            ),
+                            onPressed: () => ref.read(serviceDateProvider.notifier).setDay(
+                                  day.subtract(const Duration(days: 1)),
+                                ),
+                            icon: const Icon(Icons.chevron_left, color: AppColors.ink),
+                          ),
+                          Text(
+                            madridDateString(day),
+                            style: const TextStyle(fontSize: 14, color: AppColors.inkMuted),
+                          ),
+                          IconButton(
+                            tooltip: context.tr(
+                              es: 'Día siguiente',
+                              eu: 'Hurrengo eguna',
+                              en: 'Next day',
+                            ),
+                            onPressed: () => ref.read(serviceDateProvider.notifier).setDay(
+                                  day.add(const Duration(days: 1)),
+                                ),
+                            icon: const Icon(Icons.chevron_right, color: AppColors.ink),
+                          ),
+                        ],
                       ),
                     ],
-                  ),
-                  FilledButton.icon(
+                  );
+
+                  final button = FilledButton.icon(
                     style: FilledButton.styleFrom(
                       backgroundColor: AppColors.bottleGreen,
-                      minimumSize: const Size(150, 42),
+                      minimumSize: isNarrow ? const Size(double.infinity, 42) : const Size(150, 42),
                     ),
                     onPressed: () => showDialog<void>(
                       context: context,
                       builder: (_) => const _PhoneBookingDialog(),
                     ),
                     icon: const Icon(Icons.add, size: 18),
-                    label: const Text('Reserva Telefónica'),
-                  ),
-                ],
+                    label: Text(
+                      context.tr(
+                        es: 'Reserva por teléfono',
+                        eu: 'Telefono erreserba',
+                        en: 'Phone booking',
+                      ),
+                    ),
+                  );
+
+                  if (isNarrow) {
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        titleWidget,
+                        const SizedBox(height: AppSpacing.sm),
+                        button,
+                      ],
+                    );
+                  }
+
+                  return Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Expanded(child: titleWidget),
+                      const SizedBox(width: AppSpacing.md),
+                      button,
+                    ],
+                  );
+                },
               ),
               const SizedBox(height: AppSpacing.md),
 
-              // S2: Prominent Allergen Alert Bar for Kitchen Staff per specifications
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(AppSpacing.md),
-                decoration: BoxDecoration(
-                  color: AppColors.ciderWash,
-                  borderRadius: AppRadius.card,
-                  border: Border.all(color: AppColors.cider, width: 1.5),
-                ),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Icon(Icons.warning_amber_rounded, color: AppColors.cider, size: 28),
-                    const SizedBox(width: AppSpacing.sm),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Text(
-                                'ALERTA DE COCINA / ALÉRGENOS',
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w700,
-                                  color: AppColors.cider,
-                                  letterSpacing: 0.5,
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                decoration: BoxDecoration(
-                                  color: AppColors.cider,
-                                  borderRadius: BorderRadius.circular(4),
-                                ),
-                                child: const Text(
-                                  'PRIORITARIO',
-                                  style: TextStyle(
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.w700,
-                                    color: Colors.white,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 4),
-                          const Text(
-                            '• Mesa T3 / B1 (Ane Etxebarria · 13:00): ALERGIA AL GLUTEN (1 celíaco — menú especial sin gluten y pan celíaco).\n• Mesa T4 (Iñigo Zuloaga · 14:00): 1 trona infantil requerida.',
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                              color: AppColors.ink,
-                              height: 1.4,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: AppSpacing.lg),
-
-              // Bookings List (with fallback to standard demo bookings)
               bookings.when(
-                loading: () => const LoadingState(label: 'Cargando comensales...'),
-                error: (_, _) => _buildRows(context, _demoLiveBookings(), ref),
+                loading: () => const LoadingState(label: 'Loading bookings...'),
+                error: (_, _) {
+                  if (ready) {
+                    return ErrorState(
+                      message: l10n.errorGeneric,
+                      retryLabel: l10n.retry,
+                      onRetry: () => ref.invalidate(liveBookingsProvider),
+                    );
+                  }
+                  return _serviceList(context, _demoLiveBookings(), ref);
+                },
                 data: (rows) {
                   final open = rows.where((row) => row.status != 'cancelled').toList();
-                  final list = open.isNotEmpty ? open : _demoLiveBookings();
-                  return _buildRows(context, list, ref);
+                  if (open.isEmpty) {
+                    if (ready) return EmptyState(message: l10n.noBookingsToday);
+                    return _serviceList(context, _demoLiveBookings(), ref);
+                  }
+                  return _serviceList(context, open, ref);
                 },
               ),
             ],
@@ -251,14 +261,76 @@ class WaiterScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildRows(BuildContext context, List<LiveBooking> list, WidgetRef ref) {
+  Widget _serviceList(BuildContext context, List<LiveBooking> list, WidgetRef ref) {
+    final noted = list.where((row) => row.hasNotes).toList();
     return Column(
       children: [
+        if (noted.isNotEmpty) ...[
+          _AllergenBanner(rows: noted),
+          const SizedBox(height: AppSpacing.lg),
+        ],
         for (final row in list) ...[
           _BookingCard(booking: row),
           const SizedBox(height: AppSpacing.sm),
         ],
       ],
+    );
+  }
+}
+
+class _AllergenBanner extends StatelessWidget {
+  const _AllergenBanner({required this.rows});
+
+  final List<LiveBooking> rows;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: AppColors.ciderWash,
+        borderRadius: AppRadius.card,
+        border: Border.all(color: AppColors.cider, width: 1.5),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.warning_amber_rounded, color: AppColors.cider, size: 28),
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  context.tr(
+                    es: 'COCINA / ALERTA DE ALERGIA',
+                    eu: 'SUKALDEA / ALERGIA ALERTA',
+                    en: 'KITCHEN / ALLERGY ALERT',
+                  ),
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.cider,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                for (final row in rows)
+                  Text(
+                    '• ${row.time} ${row.customerName}${row.tableLabels.isEmpty ? '' : ' (${row.tableLabels.join(', ')})'}: ${row.notes}',
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.ink,
+                      height: 1.4,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -270,22 +342,26 @@ class _BookingCard extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final tables = booking.tableLabels.isEmpty ? 'Sin mesa' : booking.tableLabels.join(', ');
+    final tables = booking.tableLabels.isEmpty
+        ? context.tr(es: 'Sin mesa', eu: 'Mahairik ez', en: 'No table')
+        : booking.tableLabels.join(', ');
     final isSeated = booking.status == 'seated';
     final isCompleted = booking.status == 'completed';
 
     Color statusColor = AppColors.bottleGreen;
     Color statusBg = AppColors.bottleGreenWash;
-    String statusLabel = 'Confirmada';
+    String statusLabel = 'Confirmed';
 
     if (isSeated) {
       statusColor = AppColors.cider;
       statusBg = AppColors.ciderWash;
-      statusLabel = 'Sentados en mesa';
+      statusLabel = context.tr(es: 'Sentado', eu: 'Eserita', en: 'Seated');
     } else if (isCompleted) {
       statusColor = AppColors.inkMuted;
       statusBg = AppColors.paper;
-      statusLabel = 'Servicio terminado';
+      statusLabel = context.tr(es: 'Terminado', eu: 'Amaituta', en: 'Finished');
+    } else {
+      statusLabel = context.tr(es: 'Confirmada', eu: 'Berretsita', en: 'Confirmed');
     }
 
     return AppCard(
@@ -312,64 +388,81 @@ class _BookingCard extends ConsumerWidget {
                   ),
                 ),
               ),
-              const SizedBox(width: AppSpacing.sm),
-              Expanded(
-                child: Text(
-                  booking.customerName,
-                  style: const TextStyle(
-                    fontSize: 17,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.ink,
+              const Spacer(),
+              Flexible(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: statusBg,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: statusColor.withValues(alpha: 0.3)),
                   ),
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: statusBg,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: statusColor.withValues(alpha: 0.3)),
-                ),
-                child: Text(
-                  statusLabel,
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                    color: statusColor,
+                  child: Text(
+                    statusLabel,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: statusColor,
+                    ),
                   ),
                 ),
               ),
             ],
           ),
           const SizedBox(height: 6),
-          Row(
+          Text(
+            booking.customerName,
+            style: const TextStyle(
+              fontSize: 17,
+              fontWeight: FontWeight.w700,
+              color: AppColors.ink,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Wrap(
+            spacing: 12,
+            runSpacing: 4,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              const Icon(Icons.people_alt_outlined, size: 16, color: AppColors.inkMuted),
-              const SizedBox(width: 4),
-              Text(
-                '${booking.adults} adultos${booking.children > 0 ? " · ${booking.children} niños" : ""}',
-                style: const TextStyle(fontSize: 14, color: AppColors.inkMuted),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.people_alt_outlined, size: 16, color: AppColors.inkMuted),
+                  const SizedBox(width: 4),
+                  Text(
+                    '${booking.adults} adults${booking.children > 0 ? " · ${booking.children} children" : ""}',
+                    style: const TextStyle(fontSize: 14, color: AppColors.inkMuted),
+                  ),
+                ],
               ),
-              const SizedBox(width: 12),
-              const Icon(Icons.table_restaurant_outlined, size: 16, color: AppColors.bottleGreen),
-              const SizedBox(width: 4),
-              Text(
-                'Mesa: $tables',
-                style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.bottleGreen,
-                ),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.table_restaurant_outlined, size: 16, color: AppColors.bottleGreen),
+                  const SizedBox(width: 4),
+                  Text(
+                    '${context.tr(es: 'Mesa', eu: 'Mahaia', en: 'Table')}: $tables',
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.bottleGreen,
+                    ),
+                  ),
+                ],
               ),
-              if (booking.depositAmount > 0) ...[
-                const SizedBox(width: 12),
-                const Icon(Icons.check_circle_outline, size: 16, color: AppColors.bottleGreen),
-                const SizedBox(width: 4),
+              if (booking.depositAmount > 0)
                 Text(
-                  '${booking.depositAmount.toInt()} € seña',
-                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.bottleGreen),
+                  booking.payment == 'paid'
+                      ? '${booking.depositAmount.toInt()} € deposit paid'
+                      : '${booking.depositAmount.toInt()} € deposit pending',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: booking.payment == 'paid' ? AppColors.bottleGreen : AppColors.cider,
+                  ),
                 ),
-              ],
             ],
           ),
           if (booking.hasNotes) ...[
@@ -386,12 +479,14 @@ class _BookingCard extends ConsumerWidget {
                 children: [
                   const Icon(Icons.warning, size: 16, color: AppColors.cider),
                   const SizedBox(width: 6),
-                  Text(
-                    'Alérgenos: ${booking.notes}',
-                    style: const TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.cider,
+                  Expanded(
+                    child: Text(
+                      'Notes: ${booking.notes}',
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.cider,
+                      ),
                     ),
                   ),
                 ],
@@ -410,13 +505,9 @@ class _BookingCard extends ConsumerWidget {
                     minimumSize: const Size(120, 38),
                     padding: const EdgeInsets.symmetric(horizontal: 12),
                   ),
-                  onPressed: () {
-                    try {
-                      ref.read(liveBookingsProvider.notifier).setStatus(booking.id, 'seated');
-                    } catch (_) {}
-                  },
+                  onPressed: () => _setStatus(context, ref, 'seated'),
                   icon: const Icon(Icons.chair, size: 16),
-                  label: const Text('Sentar'),
+                  label: Text(context.tr(es: 'Sentar', eu: 'Eseri', en: 'Seat')),
                 ),
               if (!isCompleted)
                 OutlinedButton.icon(
@@ -424,28 +515,47 @@ class _BookingCard extends ConsumerWidget {
                     minimumSize: const Size(130, 38),
                     padding: const EdgeInsets.symmetric(horizontal: 12),
                   ),
-                  onPressed: () {
-                    try {
-                      ref.read(liveBookingsProvider.notifier).setStatus(booking.id, 'completed');
-                    } catch (_) {}
-                  },
+                  onPressed: () => _setStatus(context, ref, 'completed'),
                   icon: const Icon(Icons.check, size: 16),
-                  label: const Text('Terminado'),
+                  label: Text(context.tr(es: 'Hecho', eu: 'Eginda', en: 'Done')),
                 ),
-              OutlinedButton.icon(
-                style: OutlinedButton.styleFrom(
-                  minimumSize: const Size(140, 38),
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
+              if (!isCompleted)
+                OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(140, 38),
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                  ),
+                  onPressed: () => _assign(context, ref),
+                  icon: const Icon(Icons.edit_location_alt, size: 16),
+                  label: Text(
+                    context.tr(es: 'Asignar mesa', eu: 'Mahaia esleitu', en: 'Assign table'),
+                  ),
                 ),
-                onPressed: () => _assign(context, ref),
-                icon: const Icon(Icons.edit_location_alt, size: 16),
-                label: const Text('Asignar mesa'),
-              ),
             ],
           ),
         ],
       ),
     );
+  }
+
+  Future<void> _setStatus(BuildContext context, WidgetRef ref, String status) async {
+    try {
+      await ref.read(liveBookingsProvider.notifier).setStatus(booking.id, status);
+      ref.invalidate(liveBookingsProvider);
+    } catch (_) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            context.tr(
+              es: 'No se pudo actualizar la reserva',
+              eu: 'Ezin izan da erreserba eguneratu',
+              en: 'Could not update the booking',
+            ),
+          ),
+        ),
+      );
+    }
   }
 
   Future<void> _assign(BuildContext context, WidgetRef ref) async {
@@ -458,7 +568,7 @@ class _BookingCard extends ConsumerWidget {
           backgroundColor: AppColors.surface,
           shape: RoundedRectangleBorder(borderRadius: AppRadius.card),
           title: Text(
-            'Asignar Mesa en Sala',
+            context.tr(es: 'Asignar una mesa', eu: 'Mahaia esleitu', en: 'Assign a table'),
             style: GoogleFonts.fraunces(fontSize: 20, fontWeight: FontWeight.w700),
           ),
           content: SizedBox(
@@ -468,7 +578,7 @@ class _BookingCard extends ConsumerWidget {
               children: [
                 for (final table in tables)
                   ListTile(
-                    title: Text('${table.label} · Capacidad: ${table.capacity} comensales'),
+                    title: Text('${table.label} · Seats: ${table.capacity}'),
                     trailing: booking.tableIds.contains(table.id)
                         ? const Icon(Icons.check_circle, color: AppColors.bottleGreen)
                         : const Icon(Icons.circle_outlined, color: AppColors.line),
@@ -507,6 +617,7 @@ class _PhoneBookingDialogState extends ConsumerState<_PhoneBookingDialog> {
   final _adults = TextEditingController(text: '4');
   final _notes = TextEditingController();
   var _busy = false;
+  String? _error;
 
   @override
   void dispose() {
@@ -515,6 +626,63 @@ class _PhoneBookingDialogState extends ConsumerState<_PhoneBookingDialog> {
     _adults.dispose();
     _notes.dispose();
     super.dispose();
+  }
+
+  Future<void> _save() async {
+    final l10n = AppLocalizations.of(context);
+    final name = _name.text.trim();
+    final phone = _phone.text.trim();
+    final adults = int.tryParse(_adults.text.trim()) ?? 0;
+    final digits = phone.replaceAll(RegExp(r'\D'), '');
+    if (name.isEmpty || digits.length < 9 || adults < 1) {
+      setState(() => _error = l10n.fieldRequired);
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final day = ref.read(serviceDateProvider);
+      final shifts = await ref.read(availabilityProvider(madridDateString(day)).future);
+      ShiftAvailability? lunch;
+      for (final shift in shifts) {
+        if (shift.isClosed) continue;
+        final label = shift.shiftName.toLowerCase();
+        if (label.contains('comida') || label.contains('lunch') || label.contains('bazkari')) {
+          lunch = shift;
+          break;
+        }
+      }
+      lunch ??= shifts.where((shift) => !shift.isClosed).firstOrNull;
+      if (lunch == null) {
+        setState(() => _error = l10n.errorShiftMissing);
+        return;
+      }
+      await ref.read(bookingRepositoryProvider).create(
+        name: name,
+        phone: phone,
+        email: 'phone-booking@iturrieta.eus',
+        language: 'en',
+        shiftId: lunch.shiftId,
+        date: day,
+        time: lunch.startTime,
+        adults: adults,
+        children: 0,
+        notes: _notes.text.trim(),
+        channel: 'phone',
+      );
+      ref.invalidate(liveBookingsProvider);
+      if (mounted) Navigator.pop(context);
+    } on BookingFailure catch (error) {
+      if (!mounted) return;
+      setState(() => _error = bookingErrorText(l10n, error.code));
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _error = l10n.errorGeneric);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   @override
@@ -527,7 +695,7 @@ class _PhoneBookingDialogState extends ConsumerState<_PhoneBookingDialog> {
           const Icon(Icons.phone_in_talk, color: AppColors.bottleGreen),
           const SizedBox(width: 8),
           Text(
-            'Reserva Telefónica / Sala',
+            context.tr(es: 'Reserva por teléfono', eu: 'Telefono erreserba', en: 'Phone booking'),
             style: GoogleFonts.fraunces(fontSize: 20, fontWeight: FontWeight.w700),
           ),
         ],
@@ -538,13 +706,17 @@ class _PhoneBookingDialogState extends ConsumerState<_PhoneBookingDialog> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              AppField(label: 'Nombre del comensal', controller: _name),
+              AppField(label: 'Guest name', controller: _name),
               const SizedBox(height: AppSpacing.sm),
-              AppField(label: 'Teléfono', controller: _phone, keyboardType: TextInputType.phone),
+              AppField(label: 'Phone', controller: _phone, keyboardType: TextInputType.phone),
               const SizedBox(height: AppSpacing.sm),
-              AppField(label: 'Comensales', controller: _adults, keyboardType: TextInputType.number),
+              AppField(label: 'Guests', controller: _adults, keyboardType: TextInputType.number),
               const SizedBox(height: AppSpacing.sm),
-              AppField(label: 'Alérgenos / Notas', controller: _notes),
+              AppField(label: 'Allergies / notes', controller: _notes),
+              if (_error != null) ...[
+                const SizedBox(height: AppSpacing.sm),
+                Text(_error!, style: const TextStyle(color: AppColors.danger)),
+              ],
             ],
           ),
         ),
@@ -552,17 +724,12 @@ class _PhoneBookingDialogState extends ConsumerState<_PhoneBookingDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context),
-          child: const Text('Cancelar', style: TextStyle(color: AppColors.inkMuted)),
+          child: const Text('Cancel', style: TextStyle(color: AppColors.inkMuted)),
         ),
         FilledButton(
           style: FilledButton.styleFrom(backgroundColor: AppColors.bottleGreen),
-          onPressed: _busy
-              ? null
-              : () {
-                  setState(() => _busy = true);
-                  Navigator.pop(context);
-                },
-          child: const Text('Guardar reserva'),
+          onPressed: _busy ? null : _save,
+          child: const Text('Save booking'),
         ),
       ],
     );

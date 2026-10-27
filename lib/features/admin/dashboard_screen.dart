@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../core/i18n_extension.dart';
 import '../../core/madrid_time.dart';
 import '../../core/money.dart';
 import '../../core/theme/app_colors.dart';
@@ -9,7 +11,9 @@ import '../../core/theme/app_spacing.dart';
 import '../../core/widgets/app_card.dart';
 import '../../core/widgets/app_scaffold.dart';
 import '../../core/widgets/empty_state.dart';
+import '../../core/widgets/error_state.dart';
 import '../../core/widgets/loading_state.dart';
+import '../../models/shift_availability.dart';
 import '../../core/widgets/max_width.dart';
 import '../../l10n/app_localizations.dart';
 import '../../models/booking.dart';
@@ -20,12 +24,8 @@ import 'admin_chrome.dart';
 
 final dashboardProvider = FutureProvider<DashboardStats>((ref) async {
   if (!ref.watch(supabaseReadyProvider)) return _demoDashboardStats();
-  try {
-    final day = madridDateString(ref.watch(serviceDateProvider));
-    return await ref.watch(dashboardRepositoryProvider).stats(day);
-  } catch (_) {
-    return _demoDashboardStats();
-  }
+  final day = madridDateString(ref.watch(serviceDateProvider));
+  return ref.watch(dashboardRepositoryProvider).stats(day);
 });
 
 DashboardStats _demoDashboardStats() => const DashboardStats(
@@ -38,12 +38,7 @@ DashboardStats _demoDashboardStats() => const DashboardStats(
 
 final staffListProvider = FutureProvider<List<StaffProfile>>((ref) async {
   if (!ref.watch(supabaseReadyProvider)) return _demoStaffProfiles();
-  try {
-    final list = await ref.watch(authRepositoryProvider).staff();
-    return list.isNotEmpty ? list : _demoStaffProfiles();
-  } catch (_) {
-    return _demoStaffProfiles();
-  }
+  return ref.watch(authRepositoryProvider).staff();
 });
 
 List<StaffProfile> _demoStaffProfiles() => [
@@ -55,12 +50,7 @@ List<StaffProfile> _demoStaffProfiles() => [
 
 final auditProvider = FutureProvider<List<AuditEntry>>((ref) async {
   if (!ref.watch(supabaseReadyProvider)) return _demoAuditEntries();
-  try {
-    final list = await ref.watch(dashboardRepositoryProvider).recentAudit();
-    return list.isNotEmpty ? list : _demoAuditEntries();
-  } catch (_) {
-    return _demoAuditEntries();
-  }
+  return ref.watch(dashboardRepositoryProvider).recentAudit();
 });
 
 List<AuditEntry> _demoAuditEntries() => [
@@ -68,22 +58,22 @@ List<AuditEntry> _demoAuditEntries() => [
         id: 'a1',
         createdAt: DateTime.now().subtract(const Duration(minutes: 12)),
         actorEmail: 'propietario@iturrieta.eus',
-        action: 'Reserva web confirmada (#ITU-8924)',
-        diff: 'Ane Etxebarria · 12 comensales · Seña 120 € abonada',
+        action: 'Web booking confirmed (#ITU-8924)',
+        diff: 'Ane Etxebarria · 12 guests · €120 deposit paid',
       ),
       AuditEntry(
         id: 'a2',
         createdAt: DateTime.now().subtract(const Duration(hours: 1, minutes: 40)),
         actorEmail: 'jefe.sala@iturrieta.eus',
-        action: 'Mesa asignada (T1)',
-        diff: 'Jon Mirena Goitia · 4 comensales',
+        action: 'Table assigned (T1)',
+        diff: 'Jon Mirena Goitia · 4 guests',
       ),
       AuditEntry(
         id: 'a3',
         createdAt: DateTime.now().subtract(const Duration(hours: 3)),
         actorEmail: 'propietario@iturrieta.eus',
-        action: 'Publicación evento',
-        diff: 'Concierto acústico en bodega para 31 oct',
+        action: 'Event published',
+        diff: 'Cellar acoustic concert for 31 Oct',
       ),
     ];
 
@@ -94,17 +84,26 @@ class DashboardScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context);
     final stats = ref.watch(dashboardProvider);
-    final role = ref.watch(staffRoleProvider).asData?.value ?? StaffRole.owner;
     final locale = Localizations.localeOf(context).toString();
+    final day = ref.watch(serviceDateProvider);
+    final ready = ref.watch(supabaseReadyProvider);
+    final shifts = ready
+        ? ref.watch(availabilityProvider(madridDateString(day)))
+        : const AsyncValue<List<ShiftAvailability>>.data([]);
 
     return AppScaffold(
-      title: 'Panel del Propietario (S3)',
+      title: 'Dashboard',
+      staffShell: true,
       body: AdminChrome(
         child: MaxWidth(
           child: stats.when(
             loading: () => LoadingState(label: l10n.loading),
-            error: (_, _) => _buildDashboard(context, _demoDashboardStats(), role, locale, l10n),
-            data: (value) => _buildDashboard(context, value, role, locale, l10n),
+            error: (_, _) => ErrorState(
+              message: l10n.errorGeneric,
+              retryLabel: l10n.retry,
+              onRetry: () => ref.invalidate(dashboardProvider),
+            ),
+            data: (value) => _buildDashboard(context, value, locale, day, shifts),
           ),
         ),
       ),
@@ -114,35 +113,36 @@ class DashboardScreen extends ConsumerWidget {
   Widget _buildDashboard(
     BuildContext context,
     DashboardStats value,
-    StaffRole role,
     String locale,
-    AppLocalizations l10n,
+    DateTime day,
+    AsyncValue<List<ShiftAvailability>> shifts,
   ) {
     return ListView(
       padding: const EdgeInsets.all(AppSpacing.lg),
       children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Column(
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final isNarrow = constraints.maxWidth < 480;
+            final titleWidget = Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'KPIs y Rendimiento de Sala (S3)',
+                  'Today\'s service',
                   style: GoogleFonts.fraunces(
-                    fontSize: 26,
+                    fontSize: isNarrow ? 22 : 26,
                     fontWeight: FontWeight.w700,
                     color: AppColors.ink,
                   ),
                 ),
                 const SizedBox(height: 2),
-                const Text(
-                  'Métricas en vivo de ocupación, reservas y cobro de señas',
-                  style: TextStyle(fontSize: 14, color: AppColors.inkMuted),
+                Text(
+                  madridDateString(day),
+                  style: const TextStyle(fontSize: 14, color: AppColors.inkMuted),
                 ),
               ],
-            ),
-            Container(
+            );
+
+            final liveBadge = Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
               decoration: BoxDecoration(
                 color: AppColors.bottleGreenWash,
@@ -150,11 +150,12 @@ class DashboardScreen extends ConsumerWidget {
                 border: Border.all(color: AppColors.bottleGreen.withValues(alpha: 0.3)),
               ),
               child: const Row(
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   Icon(Icons.bolt, size: 16, color: AppColors.bottleGreen),
                   SizedBox(width: 4),
                   Text(
-                    'En Vivo · Temporada Txotx',
+                    'Live',
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w700,
@@ -163,53 +164,94 @@ class DashboardScreen extends ConsumerWidget {
                   ),
                 ],
               ),
+            );
+
+            if (isNarrow) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  liveBadge,
+                  const SizedBox(height: AppSpacing.sm),
+                  titleWidget,
+                ],
+              );
+            }
+
+            return Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(child: titleWidget),
+                const SizedBox(width: AppSpacing.md),
+                liveBadge,
+              ],
+            );
+          },
+        ),
+        const SizedBox(height: AppSpacing.md),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: FilledButton.icon(
+            style: FilledButton.styleFrom(
+              backgroundColor: AppColors.bottleGreen,
+              minimumSize: const Size(0, 44),
             ),
-          ],
+            onPressed: () => context.go('/admin/waiter'),
+            icon: const Icon(Icons.table_restaurant, size: 18),
+            label: Text(
+              context.tr(
+                es: 'Abrir sala de servicio',
+                eu: 'Ireki zerbitzu jangela',
+                en: 'Open service floor',
+              ),
+            ),
+          ),
         ),
         const SizedBox(height: AppSpacing.lg),
 
         // S3 (Owner Dashboard): 5 clean KPI cards with Fraunces 36-48px metric typography
         LayoutBuilder(
           builder: (context, constraints) {
-            final isWide = constraints.maxWidth > 850;
+            final wide = constraints.maxWidth > 720;
+            final cardWidth = wide ? (constraints.maxWidth - 48) / 5 : constraints.maxWidth;
             return Wrap(
               spacing: AppSpacing.sm,
               runSpacing: AppSpacing.sm,
               children: [
                 _KpiCard(
-                  label: 'Cubiertos Hoy',
+                  label: 'Covers today',
                   value: '${value.coversToday}',
                   icon: Icons.people_alt,
                   accentColor: AppColors.bottleGreen,
-                  width: isWide ? (constraints.maxWidth - 48) / 5 : (constraints.maxWidth - 12) / 2,
+                  width: cardWidth,
                 ),
                 _KpiCard(
-                  label: 'Reservas Hoy',
+                  label: 'Bookings today',
                   value: '${value.bookingsToday}',
                   icon: Icons.table_restaurant,
                   accentColor: AppColors.ink,
-                  width: isWide ? (constraints.maxWidth - 48) / 5 : (constraints.maxWidth - 12) / 2,
+                  width: cardWidth,
                 ),
                 _KpiCard(
-                  label: 'Cubiertos Mañana',
+                  label: 'Covers tomorrow',
                   value: '${value.coversTomorrow}',
                   icon: Icons.calendar_today,
                   accentColor: AppColors.bottleGreen,
-                  width: isWide ? (constraints.maxWidth - 48) / 5 : (constraints.maxWidth - 12) / 2,
+                  width: cardWidth,
                 ),
                 _KpiCard(
-                  label: 'No-shows (30d)',
+                  label: 'No-shows (30 days)',
                   value: '${value.noShows30d}',
                   icon: Icons.person_off_outlined,
                   accentColor: AppColors.danger,
-                  width: isWide ? (constraints.maxWidth - 48) / 5 : (constraints.maxWidth - 12) / 2,
+                  width: cardWidth,
                 ),
                 _KpiCard(
-                  label: 'Señas Hoy',
+                  label: 'Deposits collected',
                   value: formatEur(value.depositsPaid, locale),
                   icon: Icons.payments_outlined,
                   accentColor: AppColors.cider,
-                  width: isWide ? (constraints.maxWidth - 48) / 5 : (constraints.maxWidth - 12) / 2,
+                  width: cardWidth,
                 ),
               ],
             );
@@ -224,22 +266,37 @@ class DashboardScreen extends ConsumerWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Ocupación por Turno — Jueves 29 Octubre',
+                'Occupancy · ${madridDateString(day)}',
                 style: GoogleFonts.fraunces(fontSize: 18, fontWeight: FontWeight.w700),
               ),
               const SizedBox(height: AppSpacing.md),
-              _OccupancyBar(
-                title: 'Comida (13:00 – 16:00)',
-                taken: 56,
-                total: 80,
-                color: AppColors.bottleGreen,
-              ),
-              const SizedBox(height: AppSpacing.sm),
-              _OccupancyBar(
-                title: 'Cena (20:00 – 23:00)',
-                taken: 80,
-                total: 80,
-                color: AppColors.cider,
+              shifts.when(
+                loading: () => const LoadingState(label: 'Loading shifts...'),
+                error: (_, _) => const Text(
+                  'Could not load occupancy.',
+                  style: TextStyle(color: AppColors.inkMuted),
+                ),
+                data: (rows) {
+                  if (rows.isEmpty) {
+                    return const Text(
+                      'No shifts for this day.',
+                      style: TextStyle(color: AppColors.inkMuted),
+                    );
+                  }
+                  return Column(
+                    children: [
+                      for (final shift in rows) ...[
+                        _OccupancyBar(
+                          title: '${shift.shiftName} (${shift.startTime}–${shift.endTime})',
+                          taken: shift.taken,
+                          total: shift.maxCovers,
+                          color: shift.isClosed ? AppColors.inkMuted : AppColors.bottleGreen,
+                        ),
+                        const SizedBox(height: AppSpacing.sm),
+                      ],
+                    ],
+                  );
+                },
               ),
             ],
           ),
@@ -247,12 +304,12 @@ class DashboardScreen extends ConsumerWidget {
         const SizedBox(height: AppSpacing.xl),
 
         // Staff & Audit Section
-        Text('Equipo y Permisos', style: GoogleFonts.fraunces(fontSize: 20, fontWeight: FontWeight.w700)),
+        Text('Team', style: GoogleFonts.fraunces(fontSize: 20, fontWeight: FontWeight.w700)),
         const SizedBox(height: AppSpacing.sm),
         const _StaffList(),
         const SizedBox(height: AppSpacing.xl),
 
-        Text('Auditoría Reciente', style: GoogleFonts.fraunces(fontSize: 20, fontWeight: FontWeight.w700)),
+        Text('Recent activity', style: GoogleFonts.fraunces(fontSize: 20, fontWeight: FontWeight.w700)),
         const SizedBox(height: AppSpacing.sm),
         const _AuditList(),
       ],
@@ -307,7 +364,7 @@ class _KpiCard extends StatelessWidget {
             Text(
               value,
               style: GoogleFonts.fraunces(
-                fontSize: 36,
+                fontSize: 32,
                 fontWeight: FontWeight.w700,
                 color: AppColors.ink,
                 letterSpacing: -1,
@@ -335,19 +392,15 @@ class _OccupancyBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final pct = (taken / total).clamp(0.0, 1.0);
+    final pct = total <= 0 ? 0.0 : (taken / total).clamp(0.0, 1.0);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(title, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-            Text(
-              '$taken / $total cubiertos (${(pct * 100).toInt()}%)',
-              style: TextStyle(fontWeight: FontWeight.w700, color: color, fontSize: 13),
-            ),
-          ],
+        Text(title, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+        const SizedBox(height: 2),
+        Text(
+          '$taken / $total covers (${(pct * 100).toInt()}%)',
+          style: TextStyle(fontWeight: FontWeight.w700, color: color, fontSize: 13),
         ),
         const SizedBox(height: 6),
         ClipRRect(
@@ -371,10 +424,10 @@ class _StaffList extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final staff = ref.watch(staffListProvider);
     return staff.when(
-      loading: () => const LoadingState(label: 'Cargando equipo...'),
-      error: (_, _) => const Text('Error al cargar equipo'),
+      loading: () => const LoadingState(label: 'Loading team...'),
+      error: (_, _) => const Text('Could not load the team'),
       data: (rows) {
-        if (rows.isEmpty) return const EmptyState(message: 'No hay perfiles');
+        if (rows.isEmpty) return const EmptyState(message: 'No staff profiles');
         return Column(
           children: [
             for (final row in rows) ...[
@@ -395,7 +448,12 @@ class _StaffList extends ConsumerWidget {
                     ),
                     const SizedBox(width: AppSpacing.sm),
                     Expanded(
-                      child: Text(row.email, style: const TextStyle(fontWeight: FontWeight.w600)),
+                      child: Text(
+                        row.email,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      ),
                     ),
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -404,7 +462,7 @@ class _StaffList extends ConsumerWidget {
                         borderRadius: BorderRadius.circular(10),
                       ),
                       child: Text(
-                        row.role == StaffRole.owner ? 'Dueño' : (row.role == StaffRole.manager ? 'Encargado' : 'Camarero'),
+                        row.role == StaffRole.owner ? 'Owner' : (row.role == StaffRole.manager ? 'Manager' : 'Waiter'),
                         style: TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w700,
@@ -431,10 +489,10 @@ class _AuditList extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final audit = ref.watch(auditProvider);
     return audit.when(
-      loading: () => const LoadingState(label: 'Cargando registros...'),
-      error: (_, _) => const Text('Error al cargar auditoría'),
+      loading: () => const LoadingState(label: 'Loading activity...'),
+      error: (_, _) => const Text('Could not load activity'),
       data: (rows) {
-        if (rows.isEmpty) return const EmptyState(message: 'No hay eventos');
+        if (rows.isEmpty) return const EmptyState(message: 'No activity yet');
         return Column(
           children: [
             for (final row in rows) ...[
@@ -449,22 +507,20 @@ class _AuditList extends ConsumerWidget {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text(row.action, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
-                              Text(
-                                madridDateString(row.createdAt ?? DateTime.now()),
-                                style: const TextStyle(fontSize: 12, color: AppColors.inkMuted),
-                              ),
-                            ],
+                          Text(
+                            row.action,
+                            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+                          ),
+                          Text(
+                            madridDateString(row.createdAt ?? DateTime.now()),
+                            style: const TextStyle(fontSize: 12, color: AppColors.inkMuted),
                           ),
                           const SizedBox(height: 2),
                           if (row.diff != null && row.diff!.isNotEmpty)
                             Text(row.diff!, style: const TextStyle(fontSize: 13, color: AppColors.ink)),
                           if (row.actorEmail != null && row.actorEmail!.isNotEmpty)
                             Text(
-                              'Por: ${row.actorEmail}',
+                              'By: ${row.actorEmail}',
                               style: const TextStyle(fontSize: 11, color: AppColors.inkMuted),
                             ),
                         ],

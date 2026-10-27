@@ -81,6 +81,9 @@ class BookingController extends Notifier<BookingDraft> {
   void setStep(int step) => state = state.copyWith(step: step);
 
   void setWaitlist(bool value) => state = state.copyWith(waitlist: value);
+
+  /// Clears a finished reservation so the next visit starts at the date step.
+  void reset() => state = BookingDraft(date: nextOpenDay(madridNow()));
 }
 
 final bookingControllerProvider =

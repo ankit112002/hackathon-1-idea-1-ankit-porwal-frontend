@@ -32,7 +32,8 @@ class _FloorScreenState extends ConsumerState<FloorScreen> {
     final remote = ref.watch(floorTablesProvider);
 
     return AppScaffold(
-      title: 'Plano Arquitectónico de Sala (S4)',
+      title: 'Floor plan',
+      staffShell: true,
       body: AdminChrome(
         child: remote.when(
           loading: () => LoadingState(label: l10n.loading),
@@ -53,36 +54,60 @@ class _FloorScreenState extends ConsumerState<FloorScreen> {
         Container(
           padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md, vertical: AppSpacing.sm),
           color: AppColors.surface,
-          child: Row(
-            children: [
-              Expanded(
-                child: Column(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final isNarrow = constraints.maxWidth < 600;
+              final titleWidget = Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Dining room',
+                    style: GoogleFonts.fraunces(fontSize: 18, fontWeight: FontWeight.w700),
+                  ),
+                  const Text(
+                    'Drag tables to rearrange the room. Save when you are done.',
+                    style: TextStyle(fontSize: 13, color: AppColors.inkMuted),
+                  ),
+                ],
+              );
+
+              final buttons = Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: _add,
+                    icon: const Icon(Icons.add, size: 16),
+                    label: Text(l10n.addTable),
+                  ),
+                  const SizedBox(width: AppSpacing.sm),
+                  FilledButton.icon(
+                    style: FilledButton.styleFrom(backgroundColor: AppColors.bottleGreen),
+                    onPressed: _busy ? null : _save,
+                    icon: const Icon(Icons.save, size: 16),
+                    label: Text(_busy ? l10n.sending : l10n.saveFloor),
+                  ),
+                ],
+              );
+
+              if (isNarrow) {
+                return Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      'Plano Interactivo de Sala — Sidrería Iturrieta (S4)',
-                      style: GoogleFonts.fraunces(fontSize: 18, fontWeight: FontWeight.w700),
-                    ),
-                    const Text(
-                      'Arrastra las mesas para reorganizar la sala. Los cambios se sincronizan en vivo.',
-                      style: TextStyle(fontSize: 13, color: AppColors.inkMuted),
-                    ),
+                    titleWidget,
+                    const SizedBox(height: AppSpacing.sm),
+                    buttons,
                   ],
-                ),
-              ),
-              OutlinedButton.icon(
-                onPressed: _add,
-                icon: const Icon(Icons.add, size: 16),
-                label: Text(l10n.addTable),
-              ),
-              const SizedBox(width: AppSpacing.sm),
-              FilledButton.icon(
-                style: FilledButton.styleFrom(backgroundColor: AppColors.bottleGreen),
-                onPressed: _busy ? null : _save,
-                icon: const Icon(Icons.save, size: 16),
-                label: Text(_busy ? l10n.sending : l10n.saveFloor),
-              ),
-            ],
+                );
+              }
+
+              return Row(
+                children: [
+                  Expanded(child: titleWidget),
+                  const SizedBox(width: AppSpacing.sm),
+                  buttons,
+                ],
+              );
+            },
           ),
         ),
         if (_message != null)
@@ -140,7 +165,7 @@ class _FloorScreenState extends ConsumerState<FloorScreen> {
                                 Icon(Icons.wine_bar, size: 16, color: Colors.white),
                                 SizedBox(width: 6),
                                 Text(
-                                  'ZONA TXOTX / UPELTEGIA',
+                                  'CIDER HALL',
                                   style: TextStyle(
                                     color: Colors.white,
                                     fontSize: 12,
@@ -167,7 +192,7 @@ class _FloorScreenState extends ConsumerState<FloorScreen> {
                                   const Icon(Icons.water_drop, size: 12, color: Color(0xFFF3C07B)),
                                   const SizedBox(width: 4),
                                   Text(
-                                    'Kupela $b',
+                                    'Barrel $b',
                                     style: const TextStyle(
                                       color: Colors.white,
                                       fontSize: 11,
@@ -192,7 +217,7 @@ class _FloorScreenState extends ConsumerState<FloorScreen> {
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Text(
-                          '— PASILLO PRINCIPAL AL TXOTX (CIRCULACIÓN LIBRE) —',
+                          '— MAIN AISLE TO THE CIDER HALL —',
                           style: TextStyle(
                             fontSize: 11,
                             letterSpacing: 2.0,
@@ -238,9 +263,9 @@ class _FloorScreenState extends ConsumerState<FloorScreen> {
     try {
       await ref.read(tableRepositoryProvider).savePositions(tables);
       ref.invalidate(floorTablesProvider);
-      setState(() => _message = 'Plano de sala guardado correctamente.');
+      setState(() => _message = 'Floor plan saved.');
     } catch (_) {
-      setState(() => _message = 'Plano actualizado en memoria para el servicio.');
+      setState(() => _message = 'Floor plan updated on this device.');
     } finally {
       if (mounted) setState(() => _busy = false);
     }

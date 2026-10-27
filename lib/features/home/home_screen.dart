@@ -30,7 +30,9 @@ class HomeScreen extends ConsumerWidget {
           padding: EdgeInsets.zero,
           children: [
             // Screen G1: Hero Section with Full-Bleed Basque Cidery Image
-            const _HeroSection(),
+            _HeroSection(
+              managePath: guestManagePath(ref.watch(guestManageTokenProvider)),
+            ),
 
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
@@ -97,26 +99,29 @@ class HomeScreen extends ConsumerWidget {
                       return Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                l10n.shiftsHeading,
-                                style: text.headlineSmall?.copyWith(
-                                  fontWeight: FontWeight.w700,
-                                  color: AppColors.ink,
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  l10n.shiftsHeading,
+                                  style: text.headlineSmall?.copyWith(
+                                    fontWeight: FontWeight.w700,
+                                    color: AppColors.ink,
+                                  ),
                                 ),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                shiftsSubtitle,
-                                style: const TextStyle(
-                                  fontSize: 14,
-                                  color: AppColors.inkMuted,
+                                const SizedBox(height: 2),
+                                Text(
+                                  shiftsSubtitle,
+                                  style: const TextStyle(
+                                    fontSize: 14,
+                                    color: AppColors.inkMuted,
+                                  ),
                                 ),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
+                          const SizedBox(width: AppSpacing.sm),
                           TextButton.icon(
                             onPressed: () => context.go('/book'),
                             icon: const Icon(Icons.calendar_month, size: 18, color: AppColors.bottleGreen),
@@ -178,7 +183,9 @@ class HomeScreen extends ConsumerWidget {
 }
 
 class _HeroSection extends StatelessWidget {
-  const _HeroSection();
+  const _HeroSection({required this.managePath});
+
+  final String managePath;
 
   @override
   Widget build(BuildContext context) {
@@ -328,7 +335,7 @@ class _HeroSection extends StatelessWidget {
                         padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                       ),
-                      onPressed: () => context.go('/manage/ITU-8924'),
+                      onPressed: () => context.go(managePath),
                       icon: const Icon(Icons.confirmation_number_outlined, size: 20),
                       label: Text(
                         context.tr(
@@ -467,7 +474,7 @@ class _ShiftList extends ConsumerWidget {
     // If Supabase provides shifts, display them; otherwise render the standard demo shift rows
     if (ready) {
       return shiftsAsync.when(
-        loading: () => const LoadingState(label: 'Cargando turnos...'),
+        loading: () => const LoadingState(label: 'Loading shifts...'),
         error: (_, _) => _DemoShifts(l10n: l10n),
         data: (rows) {
           if (rows.isEmpty) return _DemoShifts(l10n: l10n);
@@ -903,23 +910,21 @@ class _EventList extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final language = Localizations.localeOf(context).languageCode;
     final ready = ref.watch(supabaseReadyProvider);
     final eventsAsync = ref.watch(publishedEventsProvider);
 
     if (ready) {
       return eventsAsync.when(
-        loading: () => const LoadingState(label: 'Cargando agenda...'),
-        error: (_, _) => _AcousticConcertCard(language: language),
+        loading: () => const LoadingState(label: 'Loading events...'),
+        error: (_, _) => const _AcousticConcertCard(),
         data: (rows) {
-          if (rows.isEmpty) return _AcousticConcertCard(language: language);
+          if (rows.isEmpty) return const _AcousticConcertCard();
           return Column(
             children: [
               for (final event in rows) ...[
                 _AcousticConcertCard(
-                  language: language,
-                  customTitle: event.text(event.title, language),
-                  customDescription: event.text(event.description, language),
+                  customTitle: event.text(event.title, 'en'),
+                  customDescription: event.text(event.description, 'en'),
                 ),
                 const SizedBox(height: AppSpacing.md),
               ],
@@ -929,36 +934,24 @@ class _EventList extends ConsumerWidget {
       );
     }
 
-    return _AcousticConcertCard(language: language);
+    return const _AcousticConcertCard();
   }
 }
 
 class _AcousticConcertCard extends StatelessWidget {
   const _AcousticConcertCard({
-    required this.language,
     this.customTitle,
     this.customDescription,
   });
 
-  final String language;
   final String? customTitle;
   final String? customDescription;
 
   @override
   Widget build(BuildContext context) {
-    final title = customTitle ??
-        (language == 'eu'
-            ? 'Upeltegiko kontzertu akustikoa'
-            : (language == 'en'
-                ? 'Cellar Acoustic Concert Session'
-                : 'Concierto acústico en bodega'));
-
+    final title = customTitle ?? 'Cellar acoustic concert';
     final description = customDescription ??
-        (language == 'eu'
-            ? 'Zuzeneko musika kupela zaharren artean. Sagardo berriaren dastaketa eta Aramaioko pintxo artisauak.'
-            : (language == 'en'
-                ? 'Live acoustic music among hundred-year-old oak cider barrels. New vintage cider tasting paired with local Aramaio pintxos.'
-                : 'Música en directo entre kupelas centenarias. Degustación especial de sidra de nueva cosecha acompañada de pintxos artesanos de Aramaio.'));
+        'Live acoustic music among hundred-year-old oak cider barrels. New vintage cider tasting paired with local Aramaio pintxos.';
 
     return Container(
       decoration: BoxDecoration(
@@ -1029,16 +1022,18 @@ class _AcousticConcertCard extends StatelessWidget {
                   children: [
                     const Icon(Icons.event, size: 16, color: AppColors.cider),
                     const SizedBox(width: 6),
-                    Text(
-                      context.tr(
-                        es: 'Sábado 31 Octubre 2026 · 19:30',
-                        eu: 'Larunbata 2026ko Urriak 31 · 19:30',
-                        en: 'Saturday 31 October 2026 · 19:30',
-                      ),
-                      style: const TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.cider,
+                    Expanded(
+                      child: Text(
+                        context.tr(
+                          es: 'Sábado 31 Octubre 2026 · 19:30',
+                          eu: 'Larunbata 2026ko Urriak 31 · 19:30',
+                          en: 'Saturday 31 October 2026 · 19:30',
+                        ),
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.cider,
+                        ),
                       ),
                     ),
                   ],
@@ -1151,6 +1146,73 @@ class _HomeFooter extends StatelessWidget {
             ),
             style: const TextStyle(fontSize: 13, color: AppColors.inkMuted),
             textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: AppSpacing.md),
+          const Divider(color: AppColors.line, height: 24),
+          const SizedBox(height: 4),
+
+          // Portal de Acceso Personal & Dueño
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(AppSpacing.md),
+            decoration: BoxDecoration(
+              color: AppColors.bottleGreenWash,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AppColors.bottleGreen.withValues(alpha: 0.25)),
+            ),
+            child: Column(
+              children: [
+                Wrap(
+                  alignment: WrapAlignment.center,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 6,
+                  runSpacing: 4,
+                  children: [
+                    const Icon(Icons.shield_outlined, size: 18, color: AppColors.bottleGreen),
+                    Text(
+                      context.tr(
+                        es: 'Portal de Equipo & Administración',
+                        eu: 'Lan-taldearen eta Administrazioaren Ataria',
+                        en: 'Staff & Administration Portal',
+                      ),
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 14,
+                        color: AppColors.bottleGreen,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  context.tr(
+                    es: 'Entra con tu cuenta. El camarero abre la sala y el dueño abre el panel.',
+                    eu: 'Sartu zure kontuarekin. Zerbitzariak jangela irekitzen du eta jabeak panela.',
+                    en: 'Sign in with your account. A waiter opens the dining room. An owner opens the dashboard.',
+                  ),
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontSize: 12, color: AppColors.inkMuted),
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                FilledButton.icon(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppColors.bottleGreen,
+                    visualDensity: VisualDensity.compact,
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  ),
+                  onPressed: () => context.go('/admin/login'),
+                  icon: const Icon(Icons.login, size: 16),
+                  label: Text(
+                    context.tr(
+                      es: 'Iniciar Sesión Equipo',
+                      eu: 'Saioa Hasi (Taldea)',
+                      en: 'Staff Login',
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),

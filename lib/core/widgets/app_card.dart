@@ -28,28 +28,16 @@ class AppCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    Widget inner = leftBorderColor != null
-        ? IntrinsicHeight(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Container(
-                  width: leftBorderWidth,
-                  color: leftBorderColor,
-                ),
-                Expanded(
-                  child: Padding(
-                    padding: padding,
-                    child: child,
-                  ),
-                ),
-              ],
-            ),
-          )
-        : Padding(
-            padding: padding,
-            child: child,
-          );
+    final accent = leftBorderColor;
+    Widget inner = Padding(padding: padding, child: child);
+    if (accent != null) {
+      inner = DecoratedBox(
+        decoration: BoxDecoration(
+          border: Border(left: BorderSide(color: accent, width: leftBorderWidth)),
+        ),
+        child: inner,
+      );
+    }
 
     Widget box = DecoratedBox(
       decoration: BoxDecoration(

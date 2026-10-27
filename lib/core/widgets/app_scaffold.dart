@@ -3,10 +3,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../providers/app_providers.dart';
+import '../i18n_extension.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
 import '../viewport_controller.dart';
-import 'locale_switcher.dart';
 
 class AppScaffold extends ConsumerWidget {
   const AppScaffold({
@@ -14,21 +15,36 @@ class AppScaffold extends ConsumerWidget {
     required this.title,
     required this.body,
     this.homePath,
+    this.yourBookingPath,
     this.actions = const [],
     this.showBrandHeader = true,
+    this.hidePublicNav = false,
+    this.staffShell = false,
   });
 
   final String title;
   final Widget body;
   final String? homePath;
+
+  /// Opens this reservation instead of the placeholder manage link.
+  final String? yourBookingPath;
   final List<Widget> actions;
   final bool showBrandHeader;
+
+  /// Hides Book, Your booking, and the Staff chip.
+  final bool hidePublicNav;
+
+  /// Staff app bar: brand and sign out, no customer links.
+  final bool staffShell;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final viewportMode = ref.watch(viewportModeProvider);
+    final bookingPath =
+        yourBookingPath ?? guestManagePath(ref.watch(guestManageTokenProvider));
     final width = MediaQuery.of(context).size.width;
     final isDesktopWidth = width >= 800;
+    final publicNav = !staffShell && !hidePublicNav;
 
     Widget content = Scaffold(
       backgroundColor: AppColors.paper,
@@ -41,7 +57,7 @@ class AppScaffold extends ConsumerWidget {
               bottom: BorderSide(color: AppColors.line, width: 1),
             ),
           ),
-          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+          padding: EdgeInsets.symmetric(horizontal: isDesktopWidth ? AppSpacing.md : AppSpacing.sm),
           alignment: Alignment.center,
           child: SafeArea(
             bottom: false,
@@ -50,47 +66,51 @@ class AppScaffold extends ConsumerWidget {
                 if (homePath != null) ...[
                   IconButton(
                     tooltip: 'Volver',
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
                     onPressed: () => context.go(homePath!),
-                    icon: const Icon(Icons.arrow_back, color: AppColors.ink),
+                    icon: const Icon(Icons.arrow_back, color: AppColors.ink, size: 22),
                   ),
-                  const SizedBox(width: AppSpacing.xs),
+                  const SizedBox(width: 4),
                 ],
                 // Brand wordmark & subtitle
                 InkWell(
                   borderRadius: BorderRadius.circular(8),
                   onTap: () => context.go('/'),
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Text(
                           'Iturrieta',
                           style: GoogleFonts.fraunces(
-                            fontSize: 24,
+                            fontSize: isDesktopWidth ? 24 : 20,
                             fontWeight: FontWeight.w700,
                             color: AppColors.bottleGreen,
                             letterSpacing: -0.5,
                           ),
                         ),
-                        const SizedBox(width: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: AppColors.bottleGreenWash,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: AppColors.bottleGreen.withValues(alpha: 0.2)),
-                          ),
-                          child: const Text(
-                            'Aramaio',
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                              color: AppColors.bottleGreen,
-                              letterSpacing: 0.5,
+                        if (width >= 380 || homePath == null) ...[
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: AppColors.bottleGreenWash,
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: AppColors.bottleGreen.withValues(alpha: 0.2)),
+                            ),
+                            child: const Text(
+                              'Aramaio',
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.bottleGreen,
+                                letterSpacing: 0.3,
+                              ),
                             ),
                           ),
-                        ),
+                        ],
                         if (isDesktopWidth && viewportMode == ViewportMode.responsive) ...[
                           const SizedBox(width: 8),
                           Text(
@@ -108,30 +128,84 @@ class AppScaffold extends ConsumerWidget {
                 ),
                 const Spacer(),
                 // Desktop navigation links
-                if (isDesktopWidth && viewportMode == ViewportMode.responsive) ...[
-                  TextButton(
+                if (publicNav && isDesktopWidth && viewportMode == ViewportMode.responsive) ...[
+                  TextButton.icon(
                     onPressed: () => context.go('/book'),
-                    child: const Text(
-                      'Reservar',
-                      style: TextStyle(fontWeight: FontWeight.w600, color: AppColors.bottleGreen),
+                    icon: const Icon(Icons.table_restaurant, size: 16, color: AppColors.bottleGreen),
+                    label: Text(
+                      context.tr(es: 'Reservar', eu: 'Erreserbatu', en: 'Book'),
+                      style: const TextStyle(fontWeight: FontWeight.w600, color: AppColors.bottleGreen),
                     ),
                   ),
-                  TextButton(
-                    onPressed: () => context.go('/manage/ITU-8924'),
-                    child: const Text(
-                      'Tu Reserva',
-                      style: TextStyle(fontWeight: FontWeight.w600, color: AppColors.ink),
+                  TextButton.icon(
+                    onPressed: () => context.go(bookingPath),
+                    icon: const Icon(Icons.confirmation_number_outlined, size: 16, color: AppColors.ink),
+                    label: Text(
+                      context.tr(es: 'Tu Reserva', eu: 'Zure Erreserba', en: 'Your Booking'),
+                      style: const TextStyle(fontWeight: FontWeight.w600, color: AppColors.ink),
                     ),
                   ),
-                  TextButton(
+                  TextButton.icon(
                     onPressed: () => context.go('/admin/login'),
-                    child: const Text(
-                      'Equipo',
-                      style: TextStyle(fontWeight: FontWeight.w600, color: AppColors.inkMuted),
+                    icon: const Icon(Icons.shield_outlined, size: 16, color: AppColors.inkMuted),
+                    label: Text(
+                      context.tr(es: 'Equipo (Staff)', eu: 'Taldea (Staff)', en: 'Staff Login'),
+                      style: const TextStyle(fontWeight: FontWeight.w600, color: AppColors.inkMuted),
                     ),
                   ),
                   const SizedBox(width: AppSpacing.sm),
+                ] else if (publicNav && homePath == null) ...[
+                  // Mobile / Compact Staff access button (shown on home screen)
+                  Tooltip(
+                    message: context.tr(
+                      es: 'Acceso Equipo (Camarero / Dueño)',
+                      eu: 'Lan-taldearen Sarbidea (Zerbitzaria / Jabea)',
+                      en: 'Staff Access (Waiter / Owner)',
+                    ),
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(16),
+                      onTap: () => context.go('/admin/login'),
+                      child: Container(
+                        height: 34,
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        margin: const EdgeInsets.only(right: 6),
+                        decoration: BoxDecoration(
+                          color: AppColors.bottleGreenWash,
+                          borderRadius: BorderRadius.circular(17),
+                          border: Border.all(color: AppColors.bottleGreen.withValues(alpha: 0.25)),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.shield_outlined, size: 14, color: AppColors.bottleGreen),
+                            const SizedBox(width: 4),
+                            Text(
+                              context.tr(es: 'Equipo', eu: 'Taldea', en: 'Staff'),
+                              style: const TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.bottleGreen,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
                 ],
+                if (staffShell)
+                  IconButton(
+                    tooltip: context.tr(es: 'Salir', eu: 'Irten', en: 'Sign out'),
+                    onPressed: () async {
+                      final epoch = ref.read(authEpochProvider.notifier);
+                      try {
+                        await ref.read(authRepositoryProvider).signOut();
+                      } catch (_) {}
+                      epoch.bump();
+                      if (context.mounted) context.go('/admin/login');
+                    },
+                    icon: const Icon(Icons.logout, size: 18, color: AppColors.danger),
+                  ),
                 // Viewport mode switcher button (only shown on desktop or when mobile simulation is active)
                 if (isDesktopWidth || viewportMode == ViewportMode.mobile390)
                   Tooltip(
@@ -185,7 +259,6 @@ class AppScaffold extends ConsumerWidget {
                     ),
                   ),
                 ...actions,
-                const LocaleSwitcher(),
               ],
             ),
           ),

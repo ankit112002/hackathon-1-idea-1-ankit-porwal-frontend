@@ -11,6 +11,7 @@ import '../../core/errors.dart';
 import '../../core/madrid_time.dart';
 import '../../core/i18n_extension.dart';
 import '../../core/money.dart';
+import '../../core/public_origin.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_radius.dart';
 import '../../core/theme/app_spacing.dart';
@@ -18,6 +19,8 @@ import '../../core/widgets/app_button.dart';
 import '../../core/widgets/app_card.dart';
 import '../../core/widgets/app_field.dart';
 import '../../core/widgets/app_scaffold.dart';
+import '../../core/widgets/error_state.dart';
+import '../../core/widgets/loading_state.dart';
 import '../../core/widgets/max_width.dart';
 import '../../l10n/app_localizations.dart';
 import '../../models/shift_availability.dart';
@@ -115,6 +118,12 @@ class _BookScreenState extends ConsumerState<BookScreen> {
             BookingStepper(currentStep: draft.step),
             const SizedBox(height: AppSpacing.lg),
 
+            if (GoRouterState.of(context).uri.queryParameters['deposit'] ==
+                'cancelled') ...[
+              Text(l10n.paymentPending, style: const TextStyle(color: AppColors.cider)),
+              const SizedBox(height: AppSpacing.md),
+            ],
+
             if (draft.step == 0)
               _DateStep(
                 draft: draft,
@@ -122,12 +131,12 @@ class _BookScreenState extends ConsumerState<BookScreen> {
                 onRetry: () => ref.invalidate(availabilityProvider(day)),
               ),
 
-            if (draft.step == 1)
+            if (draft.step == 1 && draft.shift != null)
               PartyStep(
                 adults: draft.adults,
                 children: draft.children,
                 notesController: _notes,
-                shift: draft.shift ?? _demoLunchShift,
+                shift: draft.shift!,
                 settings: config,
                 onAdults: (value) => ref
                     .read(bookingControllerProvider.notifier)
@@ -141,7 +150,8 @@ class _BookScreenState extends ConsumerState<BookScreen> {
                 onBack: () => ref.read(bookingControllerProvider.notifier).setStep(0),
                 onCall: () => launchUrl(Uri.parse('tel:${config.contactPhone}')),
                 onContinue: () {
-                  final shift = draft.shift ?? _demoLunchShift;
+                  final shift = draft.shift;
+                  if (shift == null) return;
                   final full = draft.party > shift.remaining;
                   ref.read(bookingControllerProvider.notifier).setWaitlist(full);
                   ref.read(bookingControllerProvider.notifier).setStep(2);
@@ -176,7 +186,7 @@ class _BookScreenState extends ConsumerState<BookScreen> {
     BookingDraft draft,
     RestaurantSettings config,
   ) async {
-    final shift = draft.shift ?? _demoLunchShift;
+    final shift = draft.shift;
     final name = _name.text.trim();
     final phone = _phone.text.trim();
     final email = _email.text.trim();
@@ -202,24 +212,21 @@ class _BookScreenState extends ConsumerState<BookScreen> {
       ));
       return;
     }
-
-    final party = draft.party;
-    final deposit = party >= config.depositMinGroup ? party * config.depositPerPerson : 0.0;
-
-    // If deposit is required, display payment modal
-    if (deposit > 0) {
-      final confirmed = await _showPaymentModal(context, deposit, name);
-      if (!confirmed) return;
-      if (!mounted) return;
+    if (shift == null || shift.isClosed) {
+      setState(() => _formError = l10n.errorShiftMissing);
+      return;
     }
-
+    if (!draft.waitlist && (draft.time == null || draft.time!.isEmpty)) {
+      setState(() => _formError = l10n.fieldRequired);
+      return;
+    }
 
     setState(() {
       _busy = true;
       _formError = null;
     });
 
-    final language = Localizations.localeOf(context).languageCode;
+    const language = 'en';
     try {
       if (draft.waitlist) {
         await ref.read(bookingRepositoryProvider).joinWaitlist(
@@ -235,29 +242,29 @@ class _BookScreenState extends ConsumerState<BookScreen> {
         return;
       }
 
-      var token = 'ITU-8924';
-      try {
-        final result = await ref.read(bookingRepositoryProvider).create(
-          name: name,
-          phone: phone,
-          email: email,
-          language: language,
-          shiftId: shift.shiftId,
-          date: draft.date,
-          time: draft.time ?? '13:00',
-          adults: draft.adults,
-          children: draft.children,
-          notes: _notes.text.trim(),
-          channel: 'web',
-        );
-        token = result.manageToken;
-      } catch (_) {
-        // Fallback to standard demo token
-        token = 'ITU-8924';
-      }
-
+      final result = await ref.read(bookingRepositoryProvider).create(
+        name: name,
+        phone: phone,
+        email: email,
+        language: language,
+        shiftId: shift.shiftId,
+        date: draft.date,
+        time: draft.time!,
+        adults: draft.adults,
+        children: draft.children,
+        notes: _notes.text.trim(),
+        channel: 'web',
+      );
       if (!mounted) return;
-      context.go('/book/confirm?token=$token&paid=1');
+      if (result.manageToken.isEmpty) {
+        setState(() => _formError = l10n.errorGeneric);
+        return;
+      }
+      if (result.needsDeposit) {
+        await _openDepositCheckout(result.manageToken);
+        return;
+      }
+      _openConfirmation(result.manageToken);
     } on BookingFailure catch (error) {
       if (!mounted) return;
       setState(() {
@@ -277,119 +284,38 @@ class _BookScreenState extends ConsumerState<BookScreen> {
     }
   }
 
-  Future<bool> _showPaymentModal(BuildContext context, double deposit, String name) async {
-    final locale = Localizations.localeOf(context).toString();
-    final depositText = formatEur(deposit, locale);
+  Future<void> _openDepositCheckout(String token) async {
+    final origin = publicWebOrigin() ?? defaultPublicWebOrigin;
+    try {
+      final url = await ref.read(bookingRepositoryProvider).checkoutUrl(
+        token: token,
+        successUrl: '$origin/book/confirm?token=$token&paid=1',
+        cancelUrl: '$origin/book?deposit=cancelled',
+      );
+      if (url != null && url.isNotEmpty) {
+        final launched = await launchUrl(
+          Uri.parse(url),
+          webOnlyWindowName: '_self',
+        );
+        if (launched) return;
+      }
+    } on BookingFailure catch (error) {
+      if (error.code != BookingErrorCode.paymentNotConfigured && mounted) {
+        _openConfirmation(token);
+        return;
+      }
+    } catch (_) {
+      if (mounted) _openConfirmation(token);
+      return;
+    }
+    if (!mounted) return;
+    _openConfirmation(token);
+  }
 
-    return await showDialog<bool>(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            backgroundColor: AppColors.surface,
-            shape: RoundedRectangleBorder(borderRadius: AppRadius.card),
-            title: Row(
-              children: [
-                const Icon(Icons.payment, color: AppColors.cider),
-                const SizedBox(width: 8),
-                Text(
-                  ctx.tr(
-                    es: 'Pago de Seña ($depositText)',
-                    eu: 'Seinalearen ordainketa ($depositText)',
-                    en: 'Deposit Payment ($depositText)',
-                  ),
-                  style: GoogleFonts.fraunces(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.ink,
-                  ),
-                ),
-              ],
-            ),
-            content: SizedBox(
-              width: 440,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(AppSpacing.sm),
-                    decoration: BoxDecoration(
-                      color: AppColors.ciderWash,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: AppColors.cider.withValues(alpha: 0.3)),
-                    ),
-                    child: Text(
-                      ctx.tr(
-                        es: 'Seña de reserva para 12 personas: $depositText. Se descontará directamente de la cuenta en mesa.',
-                        eu: '12 pertsonentzako erreserba seinalea: $depositText. Mahiko azken kontutik kenduko da.',
-                        en: 'Deposit for 12 guests: $depositText. Deducted directly from your final bill.',
-                      ),
-                      style: const TextStyle(fontSize: 13, color: AppColors.ink),
-                    ),
-                  ),
-                  const SizedBox(height: AppSpacing.md),
-                  Text(
-                    ctx.tr(
-                      es: 'Tarjeta de prueba Stripe (Modo Test)',
-                      eu: 'Stripe probako txartela (Test modua)',
-                      en: 'Stripe test card (Test mode)',
-                    ),
-                    style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: AppColors.inkMuted),
-                  ),
-                  const SizedBox(height: 6),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                    decoration: BoxDecoration(
-                      color: AppColors.paper,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: AppColors.line),
-                    ),
-                    child: const Row(
-                      children: [
-                        Icon(Icons.credit_card, size: 20, color: AppColors.bottleGreen),
-                        SizedBox(width: 8),
-                        Text(
-                          '4242 •••• •••• 4242',
-                          style: TextStyle(fontFamily: 'monospace', fontWeight: FontWeight.w600),
-                        ),
-                        Spacer(),
-                        Text('12/28', style: TextStyle(color: AppColors.inkMuted)),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: AppSpacing.sm),
-                  Text(
-                    '${ctx.tr(es: "Titular", eu: "Titularra", en: "Cardholder")}: $name',
-                    style: const TextStyle(fontSize: 13, color: AppColors.inkMuted),
-                  ),
-                ],
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(ctx).pop(false),
-                child: Text(
-                  ctx.tr(es: 'Cancelar', eu: 'Utzi', en: 'Cancel'),
-                  style: const TextStyle(color: AppColors.inkMuted),
-                ),
-              ),
-              FilledButton(
-                style: FilledButton.styleFrom(
-                  backgroundColor: AppColors.bottleGreen,
-                  minimumSize: const Size(140, 44),
-                ),
-                onPressed: () => Navigator.of(ctx).pop(true),
-                child: Text(
-                  ctx.tr(
-                    es: 'Pagar $depositText',
-                    eu: 'Ordaindu $depositText',
-                    en: 'Pay $depositText',
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ) ??
-        false;
+  void _openConfirmation(String token) {
+    ref.read(guestManageTokenProvider.notifier).remember(token);
+    ref.read(bookingControllerProvider.notifier).reset();
+    context.pushReplacement('/book/confirm?token=$token');
   }
 }
 
@@ -527,6 +453,8 @@ class _DateStep extends ConsumerWidget {
           draft: draft,
           controller: controller,
           availability: availability,
+          allowDemo: !ref.watch(supabaseReadyProvider),
+          onRetry: onRetry,
         ),
         const SizedBox(height: AppSpacing.lg),
 
@@ -563,16 +491,41 @@ class _ShiftCardsList extends StatelessWidget {
     required this.draft,
     required this.controller,
     required this.availability,
+    required this.allowDemo,
+    required this.onRetry,
   });
 
   final BookingDraft draft;
   final BookingController controller;
   final AsyncValue<List<ShiftAvailability>> availability;
+  final bool allowDemo;
+  final VoidCallback onRetry;
 
   @override
   Widget build(BuildContext context) {
-    final rows = availability.value ?? [_demoLunchShift, _demoDinnerShift];
+    if (!allowDemo) {
+      final l10n = AppLocalizations.of(context);
+      return availability.when(
+        loading: () => LoadingState(label: l10n.loading),
+        error: (_, _) => ErrorState(
+          message: l10n.errorGeneric,
+          retryLabel: l10n.retry,
+          onRetry: onRetry,
+        ),
+        data: (rows) {
+          if (rows.isEmpty) {
+            return Text(l10n.emptyShifts, style: const TextStyle(color: AppColors.inkMuted));
+          }
+          return _cards(rows);
+        },
+      );
+    }
 
+    final rows = availability.value ?? [_demoLunchShift, _demoDinnerShift];
+    return _cards(rows);
+  }
+
+  Widget _cards(List<ShiftAvailability> rows) {
     return Column(
       children: [
         for (final shift in rows) ...[

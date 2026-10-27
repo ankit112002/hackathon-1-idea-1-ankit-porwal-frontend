@@ -82,6 +82,27 @@ class AuthEpoch extends Notifier<int> {
 
 final authEpochProvider = NotifierProvider<AuthEpoch, int>(AuthEpoch.new);
 
+/// Manage token from the reservation the guest just finished.
+class GuestManageToken extends Notifier<String?> {
+  @override
+  String? build() => null;
+
+  void remember(String token) {
+    final clean = token.replaceAll('#', '').trim();
+    if (clean.isEmpty) return;
+    state = clean;
+  }
+}
+
+final guestManageTokenProvider =
+    NotifierProvider<GuestManageToken, String?>(GuestManageToken.new);
+
+String guestManagePath(String? token) {
+  final clean = token?.replaceAll('#', '').trim() ?? '';
+  if (clean.isEmpty) return '/manage/ITU-8924';
+  return '/manage/$clean';
+}
+
 final staffRoleProvider = FutureProvider<StaffRole?>((ref) async {
   ref.watch(authEpochProvider);
   if (!ref.watch(supabaseReadyProvider)) return null;
@@ -92,8 +113,7 @@ final staffRoleProvider = FutureProvider<StaffRole?>((ref) async {
 class ServiceDate extends Notifier<DateTime> {
   @override
   DateTime build() {
-    final now = madridNow();
-    return DateTime(now.year, now.month, now.day);
+    return nextOpenDay(madridNow());
   }
 
   void setDay(DateTime day) => state = DateTime(day.year, day.month, day.day);

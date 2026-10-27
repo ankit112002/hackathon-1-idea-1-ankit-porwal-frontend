@@ -6,6 +6,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/i18n_extension.dart';
+import '../../core/madrid_time.dart';
 import '../../core/money.dart';
 import '../../core/public_origin.dart';
 import '../../core/theme/app_colors.dart';
@@ -14,76 +15,76 @@ import '../../core/theme/app_spacing.dart';
 import '../../core/widgets/app_button.dart';
 import '../../core/widgets/app_card.dart';
 import '../../core/widgets/app_scaffold.dart';
+import '../../core/widgets/empty_state.dart';
+import '../../core/widgets/error_state.dart';
 import '../../core/widgets/loading_state.dart';
 import '../../core/widgets/max_width.dart';
 import '../../l10n/app_localizations.dart';
 import '../../models/booking.dart';
 import '../../providers/app_providers.dart';
+import 'booking_controller.dart';
 
 final managedBookingProvider = FutureProvider.family<ManagedBooking?, String>((
   ref,
   token,
 ) async {
-  if (token.isEmpty) return null;
-  if (!ref.watch(supabaseReadyProvider)) {
-    return _demoManagedBooking(token);
-  }
-  try {
-    final result = await ref.watch(bookingRepositoryProvider).byToken(token);
-    return result ?? _demoManagedBooking(token);
-  } catch (_) {
-    return _demoManagedBooking(token);
-  }
+  if (token.isEmpty || !ref.watch(supabaseReadyProvider)) return null;
+  return ref.watch(bookingRepositoryProvider).byToken(token);
 });
 
-ManagedBooking _demoManagedBooking(String token) {
-  return ManagedBooking(
-    id: 'demo-itu-8924',
-    customerName: 'Ane Etxebarria',
-    date: DateTime(2026, 10, 29),
-    time: '13:00',
-    adults: 12,
-    children: 0,
-    partySize: 12,
-    status: 'confirmed',
-    notes: 'Alergia al gluten (1 celíaco)',
-    depositAmount: 120.0,
-    payment: 'paid',
-    shiftId: 'lunch-shift',
-    shiftName: 'Comida',
-  );
-}
-
-class ConfirmScreen extends ConsumerWidget {
+class ConfirmScreen extends ConsumerStatefulWidget {
   const ConfirmScreen({super.key, required this.token});
 
   final String token;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<ConfirmScreen> createState() => _ConfirmScreenState();
+}
+
+class _ConfirmScreenState extends ConsumerState<ConfirmScreen> {
+  var _refreshedPaid = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final token = widget.token.replaceAll('#', '').trim();
+    if (token.isEmpty) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ref.read(guestManageTokenProvider.notifier).remember(token);
+      ref.read(bookingControllerProvider.notifier).reset();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final paid = GoRouterState.of(context).uri.queryParameters['paid'] == '1';
-    final effectiveToken = token.isNotEmpty ? token : 'ITU-8924';
-    final booking = ref.watch(managedBookingProvider(effectiveToken));
+    final booking = ref.watch(managedBookingProvider(widget.token));
+    booking.whenData((row) {
+      if (!paid || row == null || row.payment == 'paid' || _refreshedPaid) return;
+      _refreshedPaid = true;
+      Future.delayed(const Duration(seconds: 2), () {
+        if (mounted) ref.invalidate(managedBookingProvider(widget.token));
+      });
+    });
 
+    final rawToken = widget.token.replaceAll('#', '').trim();
     return AppScaffold(
       title: l10n.confirmTitle,
       homePath: '/',
+      yourBookingPath: rawToken.isEmpty ? null : '/manage/$rawToken',
       body: MaxWidth(
         child: booking.when(
           loading: () => LoadingState(label: l10n.loading),
-          error: (_, _) => _Body(
-            booking: _demoManagedBooking(effectiveToken),
-            token: effectiveToken,
-            paid: paid,
+          error: (_, _) => ErrorState(
+            message: l10n.bookingMissing,
+            retryLabel: l10n.retry,
+            onRetry: () => ref.invalidate(managedBookingProvider(widget.token)),
           ),
           data: (row) {
-            final effectiveBooking = row ?? _demoManagedBooking(effectiveToken);
-            return _Body(
-              booking: effectiveBooking,
-              token: effectiveToken,
-              paid: paid,
-            );
+            if (row == null) return EmptyState(message: l10n.bookingMissing);
+            return _Body(booking: row, token: widget.token);
           },
         ),
       ),
@@ -92,11 +93,10 @@ class ConfirmScreen extends ConsumerWidget {
 }
 
 class _Body extends ConsumerStatefulWidget {
-  const _Body({required this.booking, required this.token, required this.paid});
+  const _Body({required this.booking, required this.token});
 
   final ManagedBooking booking;
   final String token;
-  final bool paid;
 
   @override
   ConsumerState<_Body> createState() => _BodyState();
@@ -171,13 +171,14 @@ class _BodyState extends ConsumerState<_Body> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Lead Guest & Ref
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Column(
+              // Lead Guest & Ref (Responsive to prevent overflow on mobile)
+              LayoutBuilder(
+                builder: (context, cardConstraints) {
+                  final isCompact = cardConstraints.maxWidth < 420;
+
+                  Widget buildGuestInfo() => Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
                     children: [
                       Text(
                         context.tr(
@@ -194,16 +195,19 @@ class _BodyState extends ConsumerState<_Body> {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        booking.customerName.isNotEmpty ? booking.customerName : 'Ane Etxebarria',
+                        booking.customerName,
                         style: GoogleFonts.fraunces(
                           fontSize: 22,
                           fontWeight: FontWeight.w700,
                           color: AppColors.ink,
                         ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ],
-                  ),
-                  Container(
+                  );
+
+                  Widget buildTokenBadge() => Container(
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                     decoration: BoxDecoration(
                       color: AppColors.paper,
@@ -211,30 +215,71 @@ class _BodyState extends ConsumerState<_Body> {
                       border: Border.all(color: AppColors.line),
                     ),
                     child: Row(
-                      mainAxisSize: MainAxisSize.min,
+                      mainAxisSize: isCompact ? MainAxisSize.max : MainAxisSize.min,
                       children: [
-                        Text(
-                          cleanToken,
-                          style: const TextStyle(
-                            fontFamily: 'monospace',
-                            fontWeight: FontWeight.w700,
-                            fontSize: 14,
-                            color: AppColors.bottleGreen,
+                        Flexible(
+                          child: Text(
+                            cleanToken,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontFamily: 'monospace',
+                              fontWeight: FontWeight.w700,
+                              fontSize: 13,
+                              color: AppColors.bottleGreen,
+                            ),
                           ),
                         ),
-                        const SizedBox(width: 4),
+                        const SizedBox(width: 6),
                         InkWell(
                           onTap: _copyToken,
-                          child: Icon(
-                            _copied ? Icons.check : Icons.copy,
-                            size: 16,
-                            color: AppColors.bottleGreen,
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                _copied ? Icons.check : Icons.copy,
+                                size: 16,
+                                color: AppColors.bottleGreen,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                _copied
+                                    ? context.tr(es: 'Copiado', eu: 'Kopiatuta', en: 'Copied')
+                                    : context.tr(es: 'Copiar', eu: 'Kopiatu', en: 'Copy'),
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  color: AppColors.bottleGreen,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ],
                     ),
-                  ),
-                ],
+                  );
+
+                  if (isCompact) {
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        buildGuestInfo(),
+                        const SizedBox(height: AppSpacing.sm),
+                        buildTokenBadge(),
+                      ],
+                    );
+                  }
+
+                  return Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Expanded(child: buildGuestInfo()),
+                      const SizedBox(width: AppSpacing.md),
+                      buildTokenBadge(),
+                    ],
+                  );
+                },
               ),
               const Divider(color: AppColors.line, height: 28),
 
@@ -242,7 +287,7 @@ class _BodyState extends ConsumerState<_Body> {
               _ReceiptRow(
                 icon: Icons.calendar_today,
                 label: context.tr(es: 'Fecha y Turno', eu: 'Data eta Txanda', en: 'Date & Shift'),
-                value: '${context.tr(es: "Jueves 29 oct 2026", eu: "Osteguna 2026ko urriak 29", en: "Thursday 29 Oct 2026")} · ${booking.time} (${booking.shiftName == "Comida" ? context.tr(es: "Comida", eu: "Bazkaria", en: "Lunch") : (booking.shiftName == "Cena" ? context.tr(es: "Cena", eu: "Afaria", en: "Dinner") : booking.shiftName)})',
+                value: '${madridDateString(booking.date)} · ${booking.time} (${booking.shiftName == "Comida" ? context.tr(es: "Comida", eu: "Bazkaria", en: "Lunch") : (booking.shiftName == "Cena" ? context.tr(es: "Cena", eu: "Afaria", en: "Dinner") : booking.shiftName)})',
               ),
               const SizedBox(height: AppSpacing.sm),
 
@@ -306,27 +351,37 @@ class _BodyState extends ConsumerState<_Body> {
                 width: double.infinity,
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                 decoration: BoxDecoration(
-                  color: AppColors.bottleGreenWash,
+                  color: booking.payment == 'paid' || booking.depositAmount <= 0
+                      ? AppColors.bottleGreenWash
+                      : AppColors.ciderWash,
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: AppColors.bottleGreen.withValues(alpha: 0.3)),
+                  border: Border.all(
+                    color: booking.payment == 'paid' || booking.depositAmount <= 0
+                        ? AppColors.bottleGreen.withValues(alpha: 0.3)
+                        : AppColors.cider.withValues(alpha: 0.3),
+                  ),
                 ),
                 child: Row(
                   children: [
-                    const Icon(Icons.check_circle, size: 18, color: AppColors.bottleGreen),
+                    Icon(
+                      booking.payment == 'paid' || booking.depositAmount <= 0
+                          ? Icons.check_circle
+                          : Icons.schedule,
+                      size: 18,
+                      color: booking.payment == 'paid' || booking.depositAmount <= 0
+                          ? AppColors.bottleGreen
+                          : AppColors.cider,
+                    ),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        booking.depositAmount > 0
-                            ? '${formatEur(booking.depositAmount, locale)} ${context.tr(es: "Seña abonada (Stripe Ref: pi_3MtwL24v8x9)", eu: "Ordaindutako seinalea (Stripe Ref: pi_3MtwL24v8x9)", en: "Deposit paid (Stripe Ref: pi_3MtwL24v8x9)")}'
-                            : context.tr(
-                                es: 'Reserva confirmada sin seña previa requerida',
-                                eu: 'Erreserba baieztatuta aurretiazko seinalerik gabe',
-                                en: 'Booking confirmed without deposit required',
-                              ),
-                        style: const TextStyle(
+                        _depositLine(context, booking, locale),
+                        style: TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w700,
-                          color: AppColors.bottleGreen,
+                          color: booking.payment == 'paid' || booking.depositAmount <= 0
+                              ? AppColors.bottleGreen
+                              : AppColors.cider,
                         ),
                       ),
                     ),
@@ -383,6 +438,18 @@ class _BodyState extends ConsumerState<_Body> {
             en: 'Manage this booking →',
           ),
           onPressed: () => context.go(link),
+        ),
+        const SizedBox(height: AppSpacing.sm),
+
+        AppButton(
+          label: context.tr(
+            es: 'Volver al inicio',
+            eu: 'Hasierara itzuli',
+            en: 'Back to home',
+          ),
+          kind: AppButtonKind.outlined,
+          icon: const Icon(Icons.home_outlined, size: 18, color: AppColors.bottleGreen),
+          onPressed: () => context.go('/'),
         ),
         const SizedBox(height: AppSpacing.sm),
 
@@ -445,15 +512,44 @@ class _BodyState extends ConsumerState<_Body> {
   }
 
   void _addToCalendar() {
-    final title = Uri.encodeComponent('Comida en Sidrería Iturrieta (Aramaio)');
+    final booking = widget.booking;
+    final title = Uri.encodeComponent('Sidrería Iturrieta (Aramaio)');
     final details = Uri.encodeComponent(
-      'Reserva para 12 comensales en Sidrería Iturrieta. Sagarretik txotxera. Código: #${widget.token}',
+      'Booking for ${booking.partySize} guests at Sidrería Iturrieta. Code: #${widget.token}',
     );
     final location = Uri.encodeComponent('Sidrería Iturrieta, Aramaio, Álava');
+    final start = _utcStamp(booking.date, booking.time);
+    final end = _utcStamp(booking.date, booking.time, extraHours: 3);
     final gcalUrl =
-        'https://calendar.google.com/calendar/render?action=TEMPLATE&text=$title&dates=20261029T130000Z/20261029T160000Z&details=$details&location=$location';
+        'https://calendar.google.com/calendar/render?action=TEMPLATE&text=$title&dates=$start/$end&details=$details&location=$location';
     launchUrl(Uri.parse(gcalUrl));
   }
+}
+
+String _depositLine(BuildContext context, ManagedBooking booking, String locale) {
+  final l10n = AppLocalizations.of(context);
+  if (booking.depositAmount <= 0) {
+    return context.tr(
+      es: 'Reserva confirmada sin seña previa requerida',
+      eu: 'Erreserba baieztatuta aurretiazko seinalerik gabe',
+      en: 'Booking confirmed without deposit required',
+    );
+  }
+  if (booking.payment == 'paid') {
+    return '${formatEur(booking.depositAmount, locale)} ${l10n.paymentPaid}';
+  }
+  return '${formatEur(booking.depositAmount, locale)}. ${l10n.paymentPending}';
+}
+
+String _utcStamp(DateTime day, String hhmm, {int extraHours = 0}) {
+  final parts = hhmm.split(':');
+  final hour = int.tryParse(parts.isNotEmpty ? parts[0] : '') ?? 0;
+  final minute = int.tryParse(parts.length > 1 ? parts[1] : '') ?? 0;
+  final asUtc = DateTime.utc(day.year, day.month, day.day, hour, minute);
+  final start = asUtc.subtract(Duration(hours: madridOffsetHours(asUtc)));
+  final stamp = start.add(Duration(hours: extraHours));
+  String two(int value) => value.toString().padLeft(2, '0');
+  return '${stamp.year}${two(stamp.month)}${two(stamp.day)}T${two(stamp.hour)}${two(stamp.minute)}00Z';
 }
 
 class _ReceiptRow extends StatelessWidget {

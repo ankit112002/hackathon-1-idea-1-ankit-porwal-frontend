@@ -96,7 +96,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     _fill(settings);
 
     return AppScaffold(
-      title: 'Ajustes Operativos de la Sidrería (S7)',
+      title: 'Settings',
+      staffShell: true,
       body: AdminChrome(
         child: MaxWidth(
           child: ListView(
@@ -109,12 +110,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Reglas Operativas y Ajustes (S7)',
+                        'House rules',
                         style: GoogleFonts.fraunces(fontSize: 24, fontWeight: FontWeight.w700),
                       ),
                       const SizedBox(height: 2),
                       const Text(
-                        'Configura precios de menús, umbrales de seña y techos de cubiertos por turno.',
+                        'Menu prices, deposit rules, and how many covers each shift can take.',
                         style: TextStyle(fontSize: 14, color: AppColors.inkMuted),
                       ),
                     ],
@@ -130,7 +131,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text(
-                      'Precios del Menú Tradicional',
+                      'Menu prices',
                       style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
                     ),
                     const SizedBox(height: AppSpacing.sm),
@@ -138,7 +139,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       children: [
                         Expanded(
                           child: AppField(
-                            label: 'Precio Menú Adulto (€)',
+                            label: 'Adult menu (€)',
                             controller: _adult,
                             keyboardType: TextInputType.number,
                           ),
@@ -146,7 +147,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         const SizedBox(width: AppSpacing.md),
                         Expanded(
                           child: AppField(
-                            label: 'Precio Menú Infantil (€)',
+                            label: 'Child menu (€)',
                             controller: _child,
                             keyboardType: TextInputType.number,
                           ),
@@ -165,7 +166,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text(
-                      'Señas y Límites de Grupo Online',
+                      'Deposits and group size',
                       style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
                     ),
                     const SizedBox(height: AppSpacing.sm),
@@ -173,7 +174,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       children: [
                         Expanded(
                           child: AppField(
-                            label: 'Seña por persona (€)',
+                            label: 'Deposit per person (€)',
                             controller: _deposit,
                             keyboardType: TextInputType.number,
                           ),
@@ -181,7 +182,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         const SizedBox(width: AppSpacing.md),
                         Expanded(
                           child: AppField(
-                            label: 'Mínimo de comensales para seña',
+                            label: 'Deposit starts at this group size',
                             controller: _depositFrom,
                             keyboardType: TextInputType.number,
                           ),
@@ -193,7 +194,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       children: [
                         Expanded(
                           child: AppField(
-                            label: 'Máximo comensales online (aviso llamar)',
+                            label: 'Largest party that can book online',
                             controller: _online,
                             keyboardType: TextInputType.number,
                           ),
@@ -201,7 +202,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         const SizedBox(width: AppSpacing.md),
                         Expanded(
                           child: AppField(
-                            label: 'Ventana de cancelación gratuita (horas)',
+                            label: 'Free cancellation window (hours)',
                             controller: _hours,
                             keyboardType: TextInputType.number,
                           ),
@@ -209,13 +210,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       ],
                     ),
                     const SizedBox(height: AppSpacing.sm),
-                    AppField(label: 'Teléfono de contacto público', controller: _phone),
+                    AppField(label: 'Public phone number', controller: _phone),
                     const SizedBox(height: AppSpacing.md),
                     FilledButton.icon(
                       style: FilledButton.styleFrom(backgroundColor: AppColors.bottleGreen),
                       onPressed: () => _save(settings, l10n),
                       icon: const Icon(Icons.check, size: 18),
-                      label: const Text('Guardar Ajustes Operativos'),
+                      label: const Text('Save settings'),
                     ),
                     if (_message != null) ...[
                       const SizedBox(height: AppSpacing.sm),
@@ -227,13 +228,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
               const SizedBox(height: AppSpacing.xl),
               Text(
-                'Techos de Cubiertos y Horarios por Turno',
+                'Shift hours and cover limits',
                 style: GoogleFonts.fraunces(fontSize: 20, fontWeight: FontWeight.w700),
               ),
               const SizedBox(height: AppSpacing.sm),
 
               shiftsAsync.when(
-                loading: () => const LoadingState(label: 'Cargando turnos...'),
+                loading: () => const LoadingState(label: 'Loading shifts...'),
                 error: (_, _) => _buildShiftsList(_demoServiceShifts(), l10n),
                 data: (rows) => _buildShiftsList(rows.isNotEmpty ? rows : _demoServiceShifts(), l10n),
               ),
@@ -271,9 +272,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     try {
       await ref.read(settingsRepositoryProvider).save(next);
       ref.invalidate(settingsProvider);
-      setState(() => _message = 'Ajustes actualizados correctamente.');
+      setState(() => _message = 'Settings saved.');
     } catch (_) {
-      setState(() => _message = 'Ajustes guardados localmente para la sesión.');
+      setState(() => _message = 'Saved on this device only.');
     }
   }
 }
@@ -324,7 +325,7 @@ class _ShiftEditorState extends ConsumerState<_ShiftEditor> {
                   style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
                 ),
                 Text(
-                  'Horario: ${shift.startTime} – ${shift.endTime}',
+                  'Hours: ${shift.startTime} – ${shift.endTime}',
                   style: const TextStyle(fontSize: 13, color: AppColors.inkMuted),
                 ),
               ],
@@ -333,14 +334,14 @@ class _ShiftEditorState extends ConsumerState<_ShiftEditor> {
           const SizedBox(width: AppSpacing.sm),
           Expanded(
             child: AppField(
-              label: 'Última reserva',
+              label: 'Last booking',
               controller: _last,
             ),
           ),
           const SizedBox(width: AppSpacing.sm),
           Expanded(
             child: AppField(
-              label: 'Techo cubiertos',
+              label: 'Cover limit',
               controller: _covers,
               keyboardType: TextInputType.number,
             ),
@@ -354,12 +355,12 @@ class _ShiftEditorState extends ConsumerState<_ShiftEditor> {
             onPressed: () {
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
-                  content: Text('Turno actualizado correctamente'),
+                  content: Text('Shift updated'),
                   backgroundColor: AppColors.bottleGreen,
                 ),
               );
             },
-            child: const Text('Guardar'),
+            child: const Text('Save'),
           ),
         ],
       ),

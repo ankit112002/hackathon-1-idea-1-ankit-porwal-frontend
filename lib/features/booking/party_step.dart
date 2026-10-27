@@ -57,7 +57,6 @@ class PartyStep extends StatelessWidget {
     final full = party > shift.remaining;
     final blocked = decision != PartyDecision.ok;
     final locale = Localizations.localeOf(context).toString();
-    final isEs = locale.startsWith('es');
 
     return SingleChildScrollView(
       child: Column(
